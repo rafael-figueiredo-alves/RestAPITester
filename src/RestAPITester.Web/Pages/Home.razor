@@ -1,0 +1,394 @@
+﻿@page "/"
+@inject HttpClient Http
+@inject ISpecRepository SpecRepository
+@inject ITestSuiteRepository TestSuiteRepository
+@inject JsonFileExportService FileExportService
+
+<MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
+    <MudText Typo="Typo.h4" Class="mb-4">Importar especificação OpenAPI</MudText>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <InputFile OnChange="OnFileSelected" accept=".json" />
+        @if (_errorMessage is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
+        }
+
+        @if (_savedSpecs.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-2">Especificações salvas</MudText>
+            @foreach (var saved in _savedSpecs)
+            {
+                <MudChip T="string" Class="mb-1 mr-1" OnClick="@(() => LoadSavedSpec(saved))"
+                          OnClose="@(() => DeleteSavedSpec(saved))">
+                    @saved.Name
+                </MudChip>
+            }
+        }
+    </MudPaper>
+
+    @if (_parseResult is not null)
+    {
+        @if (_currentSpec is not null)
+        {
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ExportCurrentSpec" Class="mb-3">
+                Exportar JSON da spec
+            </MudButton>
+        }
+
+        <MudGrid>
+            <MudItem xs="4">
+                <MudPaper Class="pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6">@_parseResult.Title (@_parseResult.Version)</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-3">
+                        @_parseResult.Endpoints.Count endpoint(s) encontrado(s)
+                    </MudText>
+
+                    <MudTreeView T="string" Items="@_treeItems" Hover="true"
+                                 SelectedValue="_selectedOperationId"
+                                 SelectedValueChanged="OnEndpointSelected">
+                        <ItemTemplate>
+                            <MudTreeViewItem Value="@context.Value" Items="@context.Children" Text="@context.Text" Icon="@context.Icon" />
+                        </ItemTemplate>
+                    </MudTreeView>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="8">
+                @if (_selectedEndpoint is not null)
+                {
+                    <MudPaper Class="pa-4" Elevation="2">
+                        <MudText Typo="Typo.h6" Class="d-flex align-center">
+                            <MudChip T="string" Color="@MethodColor(_selectedEndpoint.Method)" Size="Size.Small" Class="mr-2">
+                                @_selectedEndpoint.Method.ToString().ToUpper()
+                            </MudChip>
+                            @_selectedEndpoint.Path
+                        </MudText>
+                        @if (!string.IsNullOrWhiteSpace(_selectedEndpoint.Summary))
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-3">@_selectedEndpoint.Summary</MudText>
+                        }
+
+                        <MudTextField @bind-Value="_baseUrl" Label="URL base" Class="mb-3" />
+
+                        <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local (contorna CORS)" Color="Color.Primary" Class="mb-2" />
+                        @if (_useProxy)
+                        {
+                            <MudTextField @bind-Value="_proxyUrl" Label="URL do proxy" Class="mb-3" />
+                        }
+
+                        @if (_selectedEndpoint.Parameters.Count > 0)
+                        {
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">Parâmetros</MudText>
+                            @foreach (var param in _selectedEndpoint.Parameters)
+                            {
+                                <MudTextField T="string"
+                                              Label="@ParamLabel(param)"
+                                              Value="@GetParamValue(param.Name)"
+                                              ValueChanged="@(v => SetParamValue(param.Name, v))"
+                                              Required="@param.Required"
+                                              Class="mb-2" />
+                            }
+                        }
+
+                        @if (_selectedEndpoint.RequestBody is not null)
+                        {
+                            <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Corpo da requisição</MudText>
+                            <MudTextField @bind-Value="_requestBodyJson" Lines="8" Variant="Variant.Outlined" />
+                            <MudButton Variant="Variant.Text" Class="mt-2" OnClick="GenerateFakeBody">
+                                Gerar dados fictícios
+                            </MudButton>
+                        }
+
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4 d-block"
+                                   OnClick="ExecuteEndpoint" Disabled="_executing">
+                            Executar
+                        </MudButton>
+
+                        @if (_executionResult is not null)
+                        {
+                            <MudDivider Class="my-4" />
+                            <MudText Typo="Typo.subtitle2">
+                                Status: @_executionResult.StatusCode — @_executionResult.DurationMs ms
+                            </MudText>
+                            @if (_executionResult.ErrorMessage is not null)
+                            {
+                                <MudAlert Severity="Severity.Error" Class="mt-2">@_executionResult.ErrorMessage</MudAlert>
+                            }
+                            <MudTextField T="string" Value="@_executionResult.ResponseBody" Lines="10" ReadOnly="true"
+                                          Variant="Variant.Outlined" Class="mt-2" />
+
+                            <MudDivider Class="my-4" />
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">Salvar como teste</MudText>
+
+                            <MudSelect T="string" Label="Suíte de testes" Value="_selectedSuiteId"
+                                       ValueChanged="OnSuiteSelected" Class="mb-2">
+                                @foreach (var suite in _testSuites)
+                                {
+                                    <MudSelectItem T="string" Value="@suite.Id.ToString()">
+                                        @suite.Name (@suite.TestCases.Count teste(s))
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+
+                            <div class="d-flex align-center mb-3" style="gap: 8px;">
+                                <MudTextField T="string" @bind-Value="_newSuiteName" Label="Nova suíte" Class="flex-grow-1" />
+                                <MudButton Variant="Variant.Outlined" OnClick="CreateNewSuite">Criar</MudButton>
+                            </div>
+
+                            @if (_selectedSuite is not null)
+                            {
+                                <MudNumericField T="int?" @bind-Value="_expectedStatusCode" Label="Status esperado" Class="mb-2" />
+                                <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="SaveAsTestCase">
+                                    Salvar como teste em "@_selectedSuite.Name"
+                                </MudButton>
+                            }
+                        }
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body1" Class="mt-4">Selecione um endpoint na árvore ao lado.</MudText>
+                }
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private ParseResult? _parseResult;
+    private string? _errorMessage;
+    private List<TreeItemData<string>> _treeItems = new();
+
+    private string? _selectedOperationId;
+    private EndpointInfo? _selectedEndpoint;
+    private string _baseUrl = string.Empty;
+    private readonly Dictionary<string, string> _paramValues = new();
+    private string? _requestBodyJson;
+    private bool _executing;
+    private ExecutionResult? _executionResult;
+
+    private bool _useProxy;
+    private string _proxyUrl = "http://localhost:5220";
+
+    private List<SavedSpec> _savedSpecs = new();
+    private SavedSpec? _currentSpec;
+
+    private List<TestSuite> _testSuites = new();
+    private string? _selectedSuiteId;
+    private TestSuite? _selectedSuite;
+    private string _newSuiteName = string.Empty;
+    private int? _expectedStatusCode;
+
+    private readonly SchemaFakeDataGenerator _dataGenerator = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _savedSpecs = await SpecRepository.GetAllAsync();
+        _testSuites = await TestSuiteRepository.GetAllAsync();
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _parseResult = null;
+        _selectedEndpoint = null;
+        _executionResult = null;
+
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var parser = new OpenApiParser();
+            _parseResult = parser.Parse(content);
+
+            if (_parseResult.HasErrors)
+            {
+                _errorMessage = string.Join("; ", _parseResult.Errors);
+                return;
+            }
+
+            _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
+            BuildTree();
+            await SaveCurrentSpec(content, e.File.Name);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao importar: {ex.Message}";
+        }
+    }
+
+    private async Task SaveCurrentSpec(string content, string fileName)
+    {
+        _currentSpec = new SavedSpec { Name = fileName, RawJson = content };
+        await SpecRepository.SaveAsync(_currentSpec);
+        _savedSpecs = await SpecRepository.GetAllAsync();
+    }
+
+    private void LoadSavedSpec(SavedSpec spec)
+    {
+        _errorMessage = null;
+        var parser = new OpenApiParser();
+        _parseResult = parser.Parse(spec.RawJson);
+        _currentSpec = spec;
+
+        if (_parseResult.HasErrors)
+        {
+            _errorMessage = string.Join("; ", _parseResult.Errors);
+            return;
+        }
+
+        _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
+        BuildTree();
+    }
+
+    private async Task DeleteSavedSpec(SavedSpec spec)
+    {
+        await SpecRepository.DeleteAsync(spec.Id);
+        _savedSpecs = await SpecRepository.GetAllAsync();
+    }
+
+    private async Task ExportCurrentSpec()
+    {
+        if (_currentSpec is null) return;
+        await FileExportService.DownloadJsonAsync(_currentSpec.Name, _currentSpec.RawJson);
+    }
+
+    private void BuildTree()
+    {
+        _treeItems = _parseResult!.Endpoints
+            .GroupBy(e => e.Tags.FirstOrDefault() ?? "Sem tag")
+            .Select(group => new TreeItemData<string>
+            {
+                Text = group.Key,
+                Icon = Icons.Material.Filled.Folder,
+                Expanded = true,
+                Children = group.Select(endpoint => new TreeItemData<string>
+                {
+                    Value = endpoint.OperationId,
+                    Text = $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}",
+                    Icon = MethodIcon(endpoint.Method)
+                }).ToList()
+            })
+            .ToList();
+    }
+
+    private void OnEndpointSelected(string? operationId)
+    {
+        _selectedOperationId = operationId;
+        _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        _paramValues.Clear();
+        _requestBodyJson = null;
+        _executionResult = null;
+        _expectedStatusCode = null;
+    }
+
+    private static string ParamLabel(ParameterInfo param) => $"{param.Name} ({param.Location})";
+
+    private string GetParamValue(string name) => _paramValues.TryGetValue(name, out var v) ? v : string.Empty;
+    private void SetParamValue(string name, string value) => _paramValues[name] = value;
+
+    private void GenerateFakeBody()
+    {
+        if (_selectedEndpoint?.RequestBody?.SchemaJson is null) return;
+        _requestBodyJson = _dataGenerator.GenerateJson(_selectedEndpoint.RequestBody.SchemaJson);
+    }
+
+    private async Task ExecuteEndpoint()
+    {
+        if (_selectedEndpoint is null) return;
+
+        _executing = true;
+        _executionResult = null;
+
+        try
+        {
+            var testCase = new TestCase
+            {
+                EndpointOperationId = _selectedEndpoint.OperationId,
+                RequestBodyJson = _requestBodyJson,
+                ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value)
+            };
+
+            var executor = new TestExecutor(Http);
+            var (result, _) = await executor.ExecuteAsync(
+                _selectedEndpoint, testCase, _baseUrl, new Dictionary<string, string>(),
+                _useProxy ? _proxyUrl : null);
+
+            _executionResult = result;
+            _expectedStatusCode = result.StatusCode;
+        }
+        finally
+        {
+            _executing = false;
+        }
+    }
+
+    private void OnSuiteSelected(string? id)
+    {
+        _selectedSuiteId = id;
+        _selectedSuite = _testSuites.FirstOrDefault(s => s.Id.ToString() == id);
+    }
+
+    private async Task CreateNewSuite()
+    {
+        if (string.IsNullOrWhiteSpace(_newSuiteName)) return;
+
+        var suite = new TestSuite
+        {
+            Name = _newSuiteName,
+            SourceSpecId = _currentSpec?.Id ?? Guid.Empty,
+            SourceOpenApiFileName = _currentSpec?.Name ?? string.Empty,
+            BaseUrl = _baseUrl
+        };
+
+        await TestSuiteRepository.SaveAsync(suite);
+        _testSuites = await TestSuiteRepository.GetAllAsync();
+        _selectedSuiteId = suite.Id.ToString();
+        _selectedSuite = suite;
+        _newSuiteName = string.Empty;
+    }
+
+    private async Task SaveAsTestCase()
+    {
+        if (_selectedSuite is null || _selectedEndpoint is null) return;
+
+        var testCase = new TestCase
+        {
+            Name = $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}",
+            EndpointOperationId = _selectedEndpoint.OperationId,
+            ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+            RequestBodyJson = _requestBodyJson,
+            ExpectedStatusCode = _expectedStatusCode ?? _executionResult?.StatusCode
+        };
+
+        _selectedSuite.TestCases.Add(testCase);
+        await TestSuiteRepository.UpdateAsync(_selectedSuite);
+
+        _testSuites = await TestSuiteRepository.GetAllAsync();
+        _selectedSuite = _testSuites.FirstOrDefault(s => s.Id == _selectedSuite.Id);
+        _selectedSuiteId = _selectedSuite?.Id.ToString();
+    }
+
+    private static string MethodIcon(HttpMethodType method) => method switch
+    {
+        HttpMethodType.Get => Icons.Material.Filled.ArrowCircleDown,
+        HttpMethodType.Post => Icons.Material.Filled.AddCircle,
+        HttpMethodType.Put => Icons.Material.Filled.Edit,
+        HttpMethodType.Patch => Icons.Material.Filled.Edit,
+        HttpMethodType.Delete => Icons.Material.Filled.Delete,
+        _ => Icons.Material.Filled.Circle
+    };
+
+    private static Color MethodColor(HttpMethodType method) => method switch
+    {
+        HttpMethodType.Get => Color.Info,
+        HttpMethodType.Post => Color.Success,
+        HttpMethodType.Put => Color.Warning,
+        HttpMethodType.Patch => Color.Warning,
+        HttpMethodType.Delete => Color.Error,
+        _ => Color.Default
+    };
+}

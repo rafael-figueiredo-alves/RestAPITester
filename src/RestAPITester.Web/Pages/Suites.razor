@@ -1,0 +1,293 @@
+@page "/suites"
+@inject HttpClient Http
+@inject ISpecRepository SpecRepository
+@inject ITestSuiteRepository TestSuiteRepository
+@inject JsonFileExportService FileExportService
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudText Typo="Typo.h4" Class="mb-4">Suítes de Teste</MudText>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudText Typo="Typo.subtitle2" Class="mb-2">Importar suíte (.json)</MudText>
+        <InputFile OnChange="OnSuiteFileSelected" accept=".json" />
+        @if (_importError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-2">@_importError</MudAlert>
+        }
+    </MudPaper>
+
+    @if (_suites.Count == 0)
+    {
+        <MudText Typo="Typo.body1">Nenhuma suíte salva ainda. Crie uma na tela de Workspace ao executar um endpoint.</MudText>
+    }
+
+    @foreach (var suite in _suites)
+    {
+        <MudPaper Class="pa-4 mb-3" Elevation="2">
+            <MudText Typo="Typo.h6">@suite.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mb-2">
+                @suite.TestCases.Count teste(s) — URL base: @suite.BaseUrl
+                @if (suite.LastRunAt is not null)
+                {
+                    <text> — última execução: @suite.LastRunAt.Value.ToLocalTime()</text>
+                }
+            </MudText>
+
+            <div class="d-flex align-center mb-2" style="gap: 8px;">
+                <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local" Color="Color.Primary" />
+                @if (_useProxy)
+                {
+                    <MudTextField T="string" @bind-Value="_proxyUrl" Label="URL do proxy" Margin="Margin.Dense" />
+                }
+            </div>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       OnClick="@(() => RunSuite(suite))" Disabled="_runningSuiteId == suite.Id">
+                Executar suíte
+            </MudButton>
+            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ToggleExpand(suite))">
+                @(_expandedSuites.GetValueOrDefault(suite.Id) ? "Ocultar testes" : "Ver testes")
+            </MudButton>
+            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ExportSuite(suite))">
+                Exportar JSON
+            </MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Error" Class="ml-2" OnClick="@(() => DeleteSuite(suite))">
+                Excluir
+            </MudButton>
+
+            @if (_errorsBySuite.TryGetValue(suite.Id, out var error))
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-2">@error</MudAlert>
+            }
+
+            @if (_expandedSuites.GetValueOrDefault(suite.Id))
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Testes da suíte (ordem de execução)</MudText>
+
+                @foreach (var testCase in suite.TestCases)
+                {
+                    <MudPaper Class="pa-2 mb-2" Outlined="true">
+                        <div class="d-flex align-center" style="gap: 8px;">
+                            <MudTextField T="string" Value="@testCase.Name" Label="Nome" Margin="Margin.Dense" Class="flex-grow-1"
+                                          ValueChanged="@(v => UpdateTestCaseName(suite, testCase, v))" />
+                            <MudNumericField T="int?" Value="@testCase.ExpectedStatusCode" Label="Status esperado" Margin="Margin.Dense"
+                                             Style="width:140px" ValueChanged="@(v => UpdateExpectedStatus(suite, testCase, v))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                                           OnClick="@(() => MoveTestCase(suite, testCase, -1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
+                                           OnClick="@(() => MoveTestCase(suite, testCase, 1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                           OnClick="@(() => RemoveTestCase(suite, testCase))" />
+                        </div>
+
+                        <MudText Typo="Typo.caption" Class="mt-2 d-block">
+                            Variáveis capturadas (ex: token de login, pra reusar nos próximos testes da suíte)
+                        </MudText>
+
+                        @foreach (var capture in testCase.CapturedVariables.ToList())
+                        {
+                            <div class="d-flex align-center mb-1" style="gap: 8px;">
+                                <MudTextField T="string" Value="@capture.VariableName" Label="Nome da variável" Margin="Margin.Dense"
+                                              ValueChanged="@(v => UpdateCaptureName(suite, capture, v))" />
+                                <MudTextField T="string" Value="@capture.JsonPath" Label="JSONPath (ex: $.token)" Margin="Margin.Dense" Class="flex-grow-1"
+                                              ValueChanged="@(v => UpdateCapturePath(suite, capture, v))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                               OnClick="@(() => RemoveCapture(suite, testCase, capture))" />
+                            </div>
+                        }
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => AddCapture(suite, testCase))">
+                            + Capturar variável
+                        </MudButton>
+                    </MudPaper>
+                }
+            }
+
+            @if (_results.TryGetValue(suite.Id, out var result))
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">
+                    Resultado: @(result.AllPassed ? "Tudo passou ✅" : "Alguma falha ❌")
+                </MudText>
+
+                @foreach (var testResult in result.Results)
+                {
+                    var tc = suite.TestCases.FirstOrDefault(t => t.Id == testResult.TestCaseId);
+                    <MudAlert Severity="@(testResult.Success ? Severity.Success : Severity.Error)" Dense="true" Class="mb-1">
+                        @(tc?.Name ?? testResult.TestCaseId.ToString()) — status @testResult.StatusCode — @testResult.DurationMs ms
+                        @if (testResult.ErrorMessage is not null)
+                        {
+                            <text> — @testResult.ErrorMessage</text>
+                        }
+                    </MudAlert>
+                }
+            }
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private List<TestSuite> _suites = new();
+    private readonly Dictionary<Guid, TestSuiteExecutionResult> _results = new();
+    private readonly Dictionary<Guid, string> _errorsBySuite = new();
+    private readonly Dictionary<Guid, bool> _expandedSuites = new();
+    private Guid? _runningSuiteId;
+
+    private bool _useProxy;
+    private string _proxyUrl = "http://localhost:5220";
+
+    private string? _importError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _suites = await TestSuiteRepository.GetAllAsync();
+    }
+
+    private void ToggleExpand(TestSuite suite)
+    {
+        _expandedSuites[suite.Id] = !_expandedSuites.GetValueOrDefault(suite.Id);
+    }
+
+    private Task PersistSuite(TestSuite suite) => TestSuiteRepository.UpdateAsync(suite);
+
+    private async Task UpdateTestCaseName(TestSuite suite, TestCase testCase, string value)
+    {
+        testCase.Name = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateExpectedStatus(TestSuite suite, TestCase testCase, int? value)
+    {
+        testCase.ExpectedStatusCode = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task MoveTestCase(TestSuite suite, TestCase testCase, int direction)
+    {
+        var index = suite.TestCases.IndexOf(testCase);
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= suite.TestCases.Count) return;
+
+        suite.TestCases.RemoveAt(index);
+        suite.TestCases.Insert(newIndex, testCase);
+        await PersistSuite(suite);
+    }
+
+    private async Task RemoveTestCase(TestSuite suite, TestCase testCase)
+    {
+        suite.TestCases.Remove(testCase);
+        await PersistSuite(suite);
+    }
+
+    private async Task AddCapture(TestSuite suite, TestCase testCase)
+    {
+        testCase.CapturedVariables.Add(new VariableCapture { VariableName = "novaVariavel", JsonPath = "$." });
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateCaptureName(TestSuite suite, VariableCapture capture, string value)
+    {
+        capture.VariableName = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateCapturePath(TestSuite suite, VariableCapture capture, string value)
+    {
+        capture.JsonPath = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task RemoveCapture(TestSuite suite, TestCase testCase, VariableCapture capture)
+    {
+        testCase.CapturedVariables.Remove(capture);
+        await PersistSuite(suite);
+    }
+
+    private async Task ExportSuite(TestSuite suite)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(suite, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        var fileName = $"{suite.Name.Replace(" ", "_")}.testsuite.json";
+        await FileExportService.DownloadJsonAsync(fileName, json);
+    }
+
+    private async Task OnSuiteFileSelected(InputFileChangeEventArgs e)
+    {
+        _importError = null;
+
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var imported = System.Text.Json.JsonSerializer.Deserialize<TestSuite>(content);
+
+            if (imported is null)
+            {
+                _importError = "Não foi possível interpretar o arquivo como uma suíte de testes válida.";
+                return;
+            }
+
+            imported.Id = Guid.NewGuid();
+            imported.CreatedAt = DateTime.UtcNow;
+            imported.LastRunAt = null;
+
+            await TestSuiteRepository.SaveAsync(imported);
+            _suites = await TestSuiteRepository.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            _importError = $"Erro ao importar suíte: {ex.Message}";
+        }
+    }
+
+    private async Task RunSuite(TestSuite suite)
+    {
+        _runningSuiteId = suite.Id;
+        _errorsBySuite.Remove(suite.Id);
+
+        try
+        {
+            var specs = await SpecRepository.GetAllAsync();
+            var spec = suite.SourceSpecId != Guid.Empty
+                ? specs.FirstOrDefault(s => s.Id == suite.SourceSpecId)
+                : null;
+
+            spec ??= specs.FirstOrDefault(s => s.Name == suite.SourceOpenApiFileName);
+
+            if (spec is null)
+            {
+                _errorsBySuite[suite.Id] = $"Spec de origem '{suite.SourceOpenApiFileName}' não encontrada entre as specs salvas.";
+                return;
+            }
+
+            var parser = new OpenApiParser();
+            var parseResult = parser.Parse(spec.RawJson);
+
+            var executor = new TestExecutor(Http);
+            var runner = new TestSuiteRunner(executor);
+
+            var result = await runner.RunAsync(suite, parseResult.Endpoints, _useProxy ? _proxyUrl : null);
+            _results[suite.Id] = result;
+
+            suite.LastRunAt = DateTime.UtcNow;
+            await TestSuiteRepository.UpdateAsync(suite);
+        }
+        finally
+        {
+            _runningSuiteId = null;
+        }
+    }
+
+    private async Task DeleteSuite(TestSuite suite)
+    {
+        await TestSuiteRepository.DeleteAsync(suite.Id);
+        _suites = await TestSuiteRepository.GetAllAsync();
+        _results.Remove(suite.Id);
+        _errorsBySuite.Remove(suite.Id);
+    }
+}
