@@ -3,10 +3,6 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
-/// <summary>
-/// Monta um HttpRequestMessage a partir de um EndpointInfo + TestCase,
-/// resolvendo parâmetros de path/query e variáveis capturadas de chamadas anteriores.
-/// </summary>
 public class RequestBuilder
 {
     public HttpRequestMessage Build(
@@ -29,8 +25,6 @@ public class RequestBuilder
             request.Content = new StringContent(body, Encoding.UTF8, endpoint.RequestBody.ContentType);
         }
 
-        // Se um proxy local foi configurado, reaponta a requisição pra ele,
-        // levando a URL real como query string ("target").
         if (!string.IsNullOrWhiteSpace(proxyBaseUrl))
         {
             var originalUrl = request.RequestUri!.ToString();
@@ -81,9 +75,19 @@ public class RequestBuilder
                 request.Headers.TryAddWithoutValidation(param.Name, value);
         }
 
-        // Convenção: se a suíte capturou uma variável chamada "authToken",
-        // e o endpoint requer autenticação, injeta como Bearer automaticamente.
-        if (endpoint.RequiresAuth && sessionVariables.TryGetValue("authToken", out var token))
+        // Headers "avulsos" (ex: If-Match, If-None-Match) — cobre ETag e afins,
+        // mesmo quando a spec não declara isso como parâmetro formal do endpoint.
+        foreach (var (headerName, headerValue) in testCase.ExtraHeaders)
+        {
+            if (request.Headers.Contains(headerName)) continue;
+            var resolved = ResolveVariables(headerValue, sessionVariables);
+            request.Headers.TryAddWithoutValidation(headerName, resolved);
+        }
+
+        // Bearer automático: não depende mais de endpoint.RequiresAuth (várias APIs
+        // só declaram segurança globalmente na spec, não por operação).
+        if (!request.Headers.Contains("Authorization") &&
+            sessionVariables.TryGetValue("authToken", out var token))
         {
             request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
         }
@@ -101,10 +105,6 @@ public class RequestBuilder
         return null;
     }
 
-    /// <summary>
-    /// Substitui placeholders como {{authToken}} no texto por variáveis capturadas
-    /// de execuções anteriores dentro da mesma TestSuite.
-    /// </summary>
     private static string ResolveVariables(string text, IReadOnlyDictionary<string, string> sessionVariables)
     {
         foreach (var (key, value) in sessionVariables)

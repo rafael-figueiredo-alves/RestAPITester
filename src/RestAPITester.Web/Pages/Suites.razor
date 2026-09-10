@@ -89,11 +89,13 @@
                         {
                             <div class="d-flex align-center mb-1" style="gap: 8px;">
                                 <MudTextField T="string" Value="@capture.VariableName" Label="Nome da variável" Margin="Margin.Dense"
-                                              ValueChanged="@(v => UpdateCaptureName(suite, capture, v))" />
-                                <MudTextField T="string" Value="@capture.JsonPath" Label="JSONPath (ex: $.token)" Margin="Margin.Dense" Class="flex-grow-1"
-                                              ValueChanged="@(v => UpdateCapturePath(suite, capture, v))" />
+                                            ValueChanged="@(v => UpdateCaptureName(suite, capture, v))" />
+                                <MudTextField T="string" Value="@capture.SourceHeaderName" Label="Header (opcional, ex: ETag)" Margin="Margin.Dense"
+                                            ValueChanged="@(v => UpdateCaptureHeader(suite, capture, v))" />
+                                <MudTextField T="string" Value="@capture.JsonPath" Label="JSONPath (se não usar header)" Margin="Margin.Dense" Class="flex-grow-1"
+                                            ValueChanged="@(v => UpdateCapturePath(suite, capture, v))" />
                                 <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
-                                               OnClick="@(() => RemoveCapture(suite, testCase, capture))" />
+                                            OnClick="@(() => RemoveCapture(suite, testCase, capture))" />
                             </div>
                         }
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => AddCapture(suite, testCase))">
@@ -243,6 +245,12 @@
         {
             _importError = $"Erro ao importar suíte: {ex.Message}";
         }
+    }
+
+    private async Task UpdateCaptureHeader(TestSuite suite, VariableCapture capture, string value)
+    {
+        capture.SourceHeaderName = string.IsNullOrWhiteSpace(value) ? null : value;
+        await PersistSuite(suite);
     }
 
     private async Task RunSuite(TestSuite suite)

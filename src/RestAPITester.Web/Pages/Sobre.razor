@@ -1,0 +1,44 @@
+@page "/versao"
+@using System.Reflection
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudText Typo="Typo.h4" Class="mb-4">Sobre o RestAPITester</MudText>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudText Typo="Typo.h6">Versão @_appVersion</MudText>
+        <MudText Typo="Typo.body2" Class="mt-1">
+            Ferramenta local de teste de APIs a partir de especificações OpenAPI.
+        </MudText>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Principais bibliotecas</MudText>
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th>Componente</th>
+                    <th>Uso</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Microsoft.OpenApi</td><td>Parsing de especificações OpenAPI 3.0/3.1</td></tr>
+                <tr><td>Bogus</td><td>Geração de dados fictícios</td></tr>
+                <tr><td>JsonPath.Net</td><td>Avaliação de JSONPath em asserções e captura de variáveis</td></tr>
+                <tr><td>IndexedDB.Blazor</td><td>Persistência local de specs e suítes de teste</td></tr>
+                <tr><td>MudBlazor</td><td>Interface visual</td></tr>
+                <tr><td>RestAPITester.Proxy</td><td>Proxy local para contornar CORS</td></tr>
+            </tbody>
+        </MudSimpleTable>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _appVersion = "desconhecida";
+
+    protected override void OnInitialized()
+    {
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        if (version is not null)
+            _appVersion = $"{version.Major}.{version.Minor}.{version.Build}";
+    }
+}

@@ -36,6 +36,19 @@
             </MudButton>
         }
 
+        @if (_sessionVariables.Count > 0)
+        {
+            <MudPaper Class="pa-3 mb-3" Elevation="1">
+                <MudText Typo="Typo.caption" Class="d-block mb-1">Sessão do Workspace (variáveis capturadas manualmente)</MudText>
+                @foreach (var kv in _sessionVariables)
+                {
+                    <MudChip T="string" Size="Size.Small" Class="mb-1 mr-1" OnClose="@(() => RemoveSessionVariable(kv.Key))">
+                        @kv.Key = @kv.Value
+                    </MudChip>
+                }
+            </MudPaper>
+        }
+
         <MudGrid>
             <MudItem xs="4">
                 <MudPaper Class="pa-4" Elevation="2">
@@ -100,6 +113,10 @@
                             </MudButton>
                         }
 
+                        <MudTextField @bind-Value="_extraHeadersText"
+                                      Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
+                                      Lines="3" Variant="Variant.Outlined" Class="mt-3" />
+
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4 d-block"
                                    OnClick="ExecuteEndpoint" Disabled="_executing">
                             Executar
@@ -117,6 +134,17 @@
                             }
                             <MudTextField T="string" Value="@_executionResult.ResponseBody" Lines="10" ReadOnly="true"
                                           Variant="Variant.Outlined" Class="mt-2" />
+
+                            <MudDivider Class="my-4" />
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">Capturar variável desta resposta</MudText>
+                            <div class="d-flex align-center mb-3" style="gap: 8px;">
+                                <MudTextField T="string" @bind-Value="_captureVarName" Label="Nome da variável" Margin="Margin.Dense" />
+                                <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" Dense="true" />
+                                <MudTextField T="string" @bind-Value="_captureVarSource"
+                                              Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
+                                              Margin="Margin.Dense" Class="flex-grow-1" />
+                                <MudButton Variant="Variant.Outlined" OnClick="CaptureFromLastResult">Capturar</MudButton>
+                            </div>
 
                             <MudDivider Class="my-4" />
                             <MudText Typo="Typo.subtitle2" Class="mb-2">Salvar como teste</MudText>
@@ -165,11 +193,17 @@
     private string _baseUrl = string.Empty;
     private readonly Dictionary<string, string> _paramValues = new();
     private string? _requestBodyJson;
+    private string _extraHeadersText = string.Empty;
     private bool _executing;
     private ExecutionResult? _executionResult;
 
     private bool _useProxy;
     private string _proxyUrl = "http://localhost:5220";
+
+    private readonly Dictionary<string, string> _sessionVariables = new();
+    private string _captureVarName = string.Empty;
+    private string _captureVarSource = string.Empty;
+    private bool _captureFromHeader;
 
     private List<SavedSpec> _savedSpecs = new();
     private SavedSpec? _currentSpec;
@@ -281,6 +315,7 @@
         _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
         _paramValues.Clear();
         _requestBodyJson = null;
+        _extraHeadersText = string.Empty;
         _executionResult = null;
         _expectedStatusCode = null;
     }
@@ -296,6 +331,18 @@
         _requestBodyJson = _dataGenerator.GenerateJson(_selectedEndpoint.RequestBody.SchemaJson);
     }
 
+    private Dictionary<string, string> ParseExtraHeaders()
+    {
+        var result = new Dictionary<string, string>();
+        foreach (var line in _extraHeadersText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split(':', 2);
+            if (parts.Length == 2)
+                result[parts[0].Trim()] = parts[1].Trim();
+        }
+        return result;
+    }
+
     private async Task ExecuteEndpoint()
     {
         if (_selectedEndpoint is null) return;
@@ -309,12 +356,13 @@
             {
                 EndpointOperationId = _selectedEndpoint.OperationId,
                 RequestBodyJson = _requestBodyJson,
-                ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value)
+                ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                ExtraHeaders = ParseExtraHeaders()
             };
 
             var executor = new TestExecutor(Http);
             var (result, _) = await executor.ExecuteAsync(
-                _selectedEndpoint, testCase, _baseUrl, new Dictionary<string, string>(),
+                _selectedEndpoint, testCase, _baseUrl, _sessionVariables,
                 _useProxy ? _proxyUrl : null);
 
             _executionResult = result;
@@ -325,6 +373,20 @@
             _executing = false;
         }
     }
+
+    private void CaptureFromLastResult()
+    {
+        if (_executionResult is null || string.IsNullOrWhiteSpace(_captureVarName)) return;
+
+        var value = _captureFromHeader
+            ? _executionResult.ResponseHeaders.GetValueOrDefault(_captureVarSource)
+            : JsonPathHelper.EvaluateFirst(_executionResult.ResponseBody, _captureVarSource);
+
+        if (value is not null)
+            _sessionVariables[_captureVarName] = value;
+    }
+
+    private void RemoveSessionVariable(string key) => _sessionVariables.Remove(key);
 
     private void OnSuiteSelected(string? id)
     {
@@ -361,6 +423,7 @@
             EndpointOperationId = _selectedEndpoint.OperationId,
             ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
             RequestBodyJson = _requestBodyJson,
+            ExtraHeaders = ParseExtraHeaders(),
             ExpectedStatusCode = _expectedStatusCode ?? _executionResult?.StatusCode
         };
 
