@@ -1,4 +1,8 @@
 ﻿@page "/"
+
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IEnvironmentRepository EnvironmentRepository
 @inject HttpClient Http
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
@@ -57,6 +61,10 @@
                         @_parseResult.Endpoints.Count endpoint(s) encontrado(s)
                     </MudText>
 
+                    <MudTextField T="string" Value="_treeSearch" ValueChanged="OnSearchChanged"
+                                Label="Buscar endpoint" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                Immediate="true" Margin="Margin.Dense" Class="mb-3" />
+
                     <MudTreeView T="string" Items="@_treeItems" Hover="true"
                                  SelectedValue="_selectedOperationId"
                                  SelectedValueChanged="OnEndpointSelected">
@@ -81,6 +89,16 @@
                         {
                             <MudText Typo="Typo.body2" Class="mb-3">@_selectedEndpoint.Summary</MudText>
                         }
+
+                        @if (_environments.Count > 0)
+                        {
+                            <MudSelect T="string" Label="Usar ambiente salvo" ValueChanged="@(v => _baseUrl = v ?? _baseUrl)" Margin="Margin.Dense" Class="mb-2">
+                                @foreach (var env in _environments)
+                                {
+                                    <MudSelectItem T="string" Value="@env.BaseUrl">@env.Name (@env.BaseUrl)</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }                        
 
                         <MudTextField @bind-Value="_baseUrl" Label="URL base" Class="mb-3" />
 
@@ -113,9 +131,26 @@
                             </MudButton>
                         }
 
-                        <MudTextField @bind-Value="_extraHeadersText"
-                                      Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
-                                      Lines="3" Variant="Variant.Outlined" Class="mt-3" />
+                        <MudExpansionPanels Class="mt-3">
+                            <MudExpansionPanel Text="Opções avançadas">
+                                <MudTextField @bind-Value="_extraHeadersText"
+                                            Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
+                                            Lines="3" Variant="Variant.Outlined" />
+
+                                @if (_executionResult is not null)
+                                {
+                                    <MudText Typo="Typo.subtitle2" Class="mb-2 mt-4">Capturar variável desta resposta</MudText>
+                                    <div class="d-flex align-center flex-wrap" style="gap: 8px;">
+                                        <MudTextField T="string" @bind-Value="_captureVarName" Label="Nome da variável" Margin="Margin.Dense" />
+                                        <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" />
+                                        <MudTextField T="string" @bind-Value="_captureVarSource"
+                                                    Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
+                                                    Margin="Margin.Dense" Class="flex-grow-1" />
+                                        <MudButton Variant="Variant.Outlined" OnClick="CaptureFromLastResult">Capturar</MudButton>
+                                    </div>
+                                }
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
 
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4 d-block"
                                    OnClick="ExecuteEndpoint" Disabled="_executing">
@@ -216,11 +251,21 @@
 
     private readonly SchemaFakeDataGenerator _dataGenerator = new();
 
+    private List<ApiEnvironment> _environments = new();
+    private string _treeSearch = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         _savedSpecs = await SpecRepository.GetAllAsync();
         _testSuites = await TestSuiteRepository.GetAllAsync();
+        _environments = await EnvironmentRepository.GetAllAsync();
     }
+
+    private void OnSearchChanged(string value)
+    {
+        _treeSearch = value;
+        if (_parseResult is not null) BuildTree();
+    }    
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
@@ -259,6 +304,7 @@
         _currentSpec = new SavedSpec { Name = fileName, RawJson = content };
         await SpecRepository.SaveAsync(_currentSpec);
         _savedSpecs = await SpecRepository.GetAllAsync();
+        Snackbar.Add($"Especificação \"{fileName}\" salva.", Severity.Success);
     }
 
     private void LoadSavedSpec(SavedSpec spec)
@@ -280,8 +326,16 @@
 
     private async Task DeleteSavedSpec(SavedSpec spec)
     {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Excluir especificação",
+            $"Tem certeza que deseja excluir \"{spec.Name}\"? As suítes que dependem dela deixarão de funcionar.",
+            yesText: "Excluir", noText: "Cancelar");
+
+        if (confirmed != true) return;
+
         await SpecRepository.DeleteAsync(spec.Id);
         _savedSpecs = await SpecRepository.GetAllAsync();
+        Snackbar.Add("Especificação excluída.", Severity.Info);
     }
 
     private async Task ExportCurrentSpec()
@@ -292,7 +346,18 @@
 
     private void BuildTree()
     {
-        _treeItems = _parseResult!.Endpoints
+        var query = _parseResult!.Endpoints.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_treeSearch))
+        {
+            var term = _treeSearch.Trim();
+            query = query.Where(e =>
+                e.Path.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                e.OperationId.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (e.Summary?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        _treeItems = query
             .GroupBy(e => e.Tags.FirstOrDefault() ?? "Sem tag")
             .Select(group => new TreeItemData<string>
             {
@@ -411,6 +476,7 @@
         _selectedSuiteId = suite.Id.ToString();
         _selectedSuite = suite;
         _newSuiteName = string.Empty;
+        Snackbar.Add($"Suíte \"{suite.Name}\" criada.", Severity.Success);
     }
 
     private async Task SaveAsTestCase()
@@ -433,6 +499,8 @@
         _testSuites = await TestSuiteRepository.GetAllAsync();
         _selectedSuite = _testSuites.FirstOrDefault(s => s.Id == _selectedSuite.Id);
         _selectedSuiteId = _selectedSuite?.Id.ToString();
+
+        Snackbar.Add("Teste salvo na suíte.", Severity.Success);
     }
 
     private static string MethodIcon(HttpMethodType method) => method switch

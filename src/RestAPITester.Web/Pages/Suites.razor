@@ -2,10 +2,29 @@
 @inject HttpClient Http
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
+@inject IEnvironmentRepository EnvironmentRepository
+@inject IExecutionHistoryRepository HistoryRepository
 @inject JsonFileExportService FileExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
     <MudText Typo="Typo.h4" Class="mb-4">Suítes de Teste</MudText>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudText Typo="Typo.subtitle2" Class="mb-2">Ambientes</MudText>
+        @foreach (var env in _environments)
+        {
+            <MudChip T="string" Class="mb-1 mr-1" OnClose="@(() => DeleteEnvironment(env))">
+                @env.Name (@env.BaseUrl)
+            </MudChip>
+        }
+        <div class="d-flex align-center mt-2" style="gap: 8px;">
+            <MudTextField T="string" @bind-Value="_newEnvName" Label="Nome (ex: Produção)" Margin="Margin.Dense" />
+            <MudTextField T="string" @bind-Value="_newEnvUrl" Label="URL base" Margin="Margin.Dense" Class="flex-grow-1" />
+            <MudButton Variant="Variant.Outlined" OnClick="CreateEnvironment">Adicionar</MudButton>
+        </div>
+    </MudPaper>
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <MudText Typo="Typo.subtitle2" Class="mb-2">Importar suíte (.json)</MudText>
@@ -33,6 +52,17 @@
                 }
             </MudText>
 
+            <MudSelect T="string" Label="Ambiente (opcional — sobrepõe a URL base da suíte)"
+                       Value="@_selectedEnvironmentBySuite.GetValueOrDefault(suite.Id)"
+                       ValueChanged="@(v => _selectedEnvironmentBySuite[suite.Id] = v)"
+                       Margin="Margin.Dense" Class="mb-2">
+                <MudSelectItem T="string" Value="@((string?)null)">Usar URL da suíte (@suite.BaseUrl)</MudSelectItem>
+                @foreach (var env in _environments)
+                {
+                    <MudSelectItem T="string" Value="@env.BaseUrl">@env.Name (@env.BaseUrl)</MudSelectItem>
+                }
+            </MudSelect>
+
             <div class="d-flex align-center mb-2" style="gap: 8px;">
                 <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local" Color="Color.Primary" />
                 @if (_useProxy)
@@ -48,6 +78,9 @@
             <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ToggleExpand(suite))">
                 @(_expandedSuites.GetValueOrDefault(suite.Id) ? "Ocultar testes" : "Ver testes")
             </MudButton>
+            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ToggleHistory(suite))">
+                @(_expandedHistory.GetValueOrDefault(suite.Id) ? "Ocultar histórico" : "Ver histórico")
+            </MudButton>
             <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ExportSuite(suite))">
                 Exportar JSON
             </MudButton>
@@ -58,6 +91,27 @@
             @if (_errorsBySuite.TryGetValue(suite.Id, out var error))
             {
                 <MudAlert Severity="Severity.Error" Class="mt-2">@error</MudAlert>
+            }
+
+            @if (_expandedHistory.GetValueOrDefault(suite.Id))
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Histórico de execuções (mais recentes primeiro)</MudText>
+
+                @if (_historyBySuite.TryGetValue(suite.Id, out var history) && history.Count > 0)
+                {
+                    @foreach (var entry in history)
+                    {
+                        <MudAlert Severity="@(entry.AllPassed ? Severity.Success : Severity.Error)" Dense="true" Class="mb-1">
+                            @entry.StartedAt.ToLocalTime() — @(entry.AllPassed ? "Tudo passou" : "Alguma falha")
+                            — @entry.Results.Count(r => r.Success)/@entry.Results.Count teste(s) ok
+                        </MudAlert>
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">Nenhuma execução registrada ainda.</MudText>
+                }
             }
 
             @if (_expandedSuites.GetValueOrDefault(suite.Id))
@@ -81,26 +135,68 @@
                                            OnClick="@(() => RemoveTestCase(suite, testCase))" />
                         </div>
 
-                        <MudText Typo="Typo.caption" Class="mt-2 d-block">
-                            Variáveis capturadas (ex: token de login, pra reusar nos próximos testes da suíte)
-                        </MudText>
+                        <MudExpansionPanels Class="mt-2">
+                            <MudExpansionPanel Text="Opções avançadas (variáveis e asserções)">
+                                <MudText Typo="Typo.caption" Class="d-block mb-1">
+                                    Variáveis capturadas (ex: token de login, ETag, pra reusar nos próximos testes)
+                                </MudText>
+                                @foreach (var capture in testCase.CapturedVariables.ToList())
+                                {
+                                    <div class="d-flex align-center mb-1 flex-wrap" style="gap: 8px;">
+                                        <MudTextField T="string" Value="@capture.VariableName" Label="Nome da variável" Margin="Margin.Dense"
+                                                      ValueChanged="@(v => UpdateCaptureName(suite, capture, v))" />
+                                        <MudTextField T="string" Value="@capture.SourceHeaderName" Label="Header (opcional, ex: ETag)" Margin="Margin.Dense"
+                                                      ValueChanged="@(v => UpdateCaptureHeader(suite, capture, v))" />
+                                        <MudTextField T="string" Value="@capture.JsonPath" Label="JSONPath (se não usar header)" Margin="Margin.Dense" Class="flex-grow-1"
+                                                      ValueChanged="@(v => UpdateCapturePath(suite, capture, v))" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                                       OnClick="@(() => RemoveCapture(suite, testCase, capture))" />
+                                    </div>
+                                }
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => AddCapture(suite, testCase))">
+                                    + Capturar variável
+                                </MudButton>
 
-                        @foreach (var capture in testCase.CapturedVariables.ToList())
-                        {
-                            <div class="d-flex align-center mb-1" style="gap: 8px;">
-                                <MudTextField T="string" Value="@capture.VariableName" Label="Nome da variável" Margin="Margin.Dense"
-                                            ValueChanged="@(v => UpdateCaptureName(suite, capture, v))" />
-                                <MudTextField T="string" Value="@capture.SourceHeaderName" Label="Header (opcional, ex: ETag)" Margin="Margin.Dense"
-                                            ValueChanged="@(v => UpdateCaptureHeader(suite, capture, v))" />
-                                <MudTextField T="string" Value="@capture.JsonPath" Label="JSONPath (se não usar header)" Margin="Margin.Dense" Class="flex-grow-1"
-                                            ValueChanged="@(v => UpdateCapturePath(suite, capture, v))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
-                                            OnClick="@(() => RemoveCapture(suite, testCase, capture))" />
-                            </div>
-                        }
-                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => AddCapture(suite, testCase))">
-                            + Capturar variável
-                        </MudButton>
+                                <MudText Typo="Typo.caption" Class="d-block mt-4 mb-1">
+                                    Asserções adicionais (além do status esperado acima)
+                                </MudText>
+                                @foreach (var assertion in testCase.Assertions.ToList())
+                                {
+                                    <div class="d-flex align-center mb-1 flex-wrap" style="gap: 8px;">
+                                        <MudSelect T="AssertionType" Value="@assertion.Type"
+                                                   ValueChanged="@(v => UpdateAssertionType(suite, assertion, v))"
+                                                   Label="Tipo" Margin="Margin.Dense" Style="min-width:220px">
+                                            @foreach (var type in _assertionTypes)
+                                            {
+                                                <MudSelectItem T="AssertionType" Value="@type">@AssertionTypeLabel(type)</MudSelectItem>
+                                            }
+                                        </MudSelect>
+
+                                        @if (assertion.Type == AssertionType.JsonPathEquals)
+                                        {
+                                            <MudTextField T="string" Value="@assertion.JsonPath" Label="JSONPath" Margin="Margin.Dense"
+                                                          ValueChanged="@(v => UpdateAssertionJsonPath(suite, assertion, v))" />
+                                        }
+                                        @if (assertion.Type == AssertionType.HeaderEquals)
+                                        {
+                                            <MudTextField T="string" Value="@assertion.HeaderName" Label="Nome do header" Margin="Margin.Dense"
+                                                          ValueChanged="@(v => UpdateAssertionHeaderName(suite, assertion, v))" />
+                                        }
+
+                                        <MudTextField T="string" Value="@assertion.ExpectedValue"
+                                                      Label="@(assertion.Type == AssertionType.ResponseTimeBelowMs ? "Máximo (ms)" : "Valor esperado")"
+                                                      Margin="Margin.Dense" Class="flex-grow-1"
+                                                      ValueChanged="@(v => UpdateAssertionExpectedValue(suite, assertion, v))" />
+
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                                       OnClick="@(() => RemoveAssertion(suite, testCase, assertion))" />
+                                    </div>
+                                }
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => AddAssertion(suite, testCase))">
+                                    + Adicionar asserção
+                                </MudButton>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
                     </MudPaper>
                 }
             }
@@ -129,25 +225,73 @@
 </MudContainer>
 
 @code {
+    private static readonly AssertionType[] _assertionTypes = Enum.GetValues<AssertionType>()
+        .Where(t => t != AssertionType.StatusCode)
+        .ToArray();
+
     private List<TestSuite> _suites = new();
+    private List<ApiEnvironment> _environments = new();
     private readonly Dictionary<Guid, TestSuiteExecutionResult> _results = new();
+    private readonly Dictionary<Guid, List<TestSuiteExecutionResult>> _historyBySuite = new();
     private readonly Dictionary<Guid, string> _errorsBySuite = new();
     private readonly Dictionary<Guid, bool> _expandedSuites = new();
+    private readonly Dictionary<Guid, bool> _expandedHistory = new();
+    private readonly Dictionary<Guid, string?> _selectedEnvironmentBySuite = new();
     private Guid? _runningSuiteId;
 
     private bool _useProxy;
     private string _proxyUrl = "http://localhost:5220";
+
+    private string _newEnvName = string.Empty;
+    private string _newEnvUrl = string.Empty;
 
     private string? _importError;
 
     protected override async Task OnInitializedAsync()
     {
         _suites = await TestSuiteRepository.GetAllAsync();
+        _environments = await EnvironmentRepository.GetAllAsync();
+    }
+
+    private async Task CreateEnvironment()
+    {
+        if (string.IsNullOrWhiteSpace(_newEnvName) || string.IsNullOrWhiteSpace(_newEnvUrl)) return;
+
+        await EnvironmentRepository.SaveAsync(new ApiEnvironment { Name = _newEnvName, BaseUrl = _newEnvUrl });
+        _environments = await EnvironmentRepository.GetAllAsync();
+        _newEnvName = string.Empty;
+        _newEnvUrl = string.Empty;
+        Snackbar.Add("Ambiente adicionado.", Severity.Success);
+    }
+
+    private async Task DeleteEnvironment(ApiEnvironment env)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Excluir ambiente",
+            $"Tem certeza que deseja excluir o ambiente \"{env.Name}\"?",
+            yesText: "Excluir", cancelText: "Cancelar");
+
+        if (confirmed != true) return;
+
+        await EnvironmentRepository.DeleteAsync(env.Id);
+        _environments = await EnvironmentRepository.GetAllAsync();
+        Snackbar.Add("Ambiente excluído.", Severity.Info);
     }
 
     private void ToggleExpand(TestSuite suite)
     {
         _expandedSuites[suite.Id] = !_expandedSuites.GetValueOrDefault(suite.Id);
+    }
+
+    private async Task ToggleHistory(TestSuite suite)
+    {
+        var expanding = !_expandedHistory.GetValueOrDefault(suite.Id);
+        _expandedHistory[suite.Id] = expanding;
+
+        if (expanding && !_historyBySuite.ContainsKey(suite.Id))
+        {
+            _historyBySuite[suite.Id] = await HistoryRepository.GetBySuiteAsync(suite.Id);
+        }
     }
 
     private Task PersistSuite(TestSuite suite) => TestSuiteRepository.UpdateAsync(suite);
@@ -177,8 +321,16 @@
 
     private async Task RemoveTestCase(TestSuite suite, TestCase testCase)
     {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Remover teste",
+            $"Remover o teste \"{testCase.Name}\" da suíte?",
+            yesText: "Remover", cancelText: "Cancelar");
+
+        if (confirmed != true) return;
+
         suite.TestCases.Remove(testCase);
         await PersistSuite(suite);
+        Snackbar.Add("Teste removido.", Severity.Info);
     }
 
     private async Task AddCapture(TestSuite suite, TestCase testCase)
@@ -190,6 +342,12 @@
     private async Task UpdateCaptureName(TestSuite suite, VariableCapture capture, string value)
     {
         capture.VariableName = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateCaptureHeader(TestSuite suite, VariableCapture capture, string value)
+    {
+        capture.SourceHeaderName = string.IsNullOrWhiteSpace(value) ? null : value;
         await PersistSuite(suite);
     }
 
@@ -205,6 +363,51 @@
         await PersistSuite(suite);
     }
 
+    private static string AssertionTypeLabel(AssertionType type) => type switch
+    {
+        AssertionType.BodyContains => "Corpo contém",
+        AssertionType.JsonPathEquals => "JSONPath igual a",
+        AssertionType.HeaderEquals => "Header igual a",
+        AssertionType.ResponseTimeBelowMs => "Tempo de resposta abaixo de (ms)",
+        _ => type.ToString()
+    };
+
+    private async Task AddAssertion(TestSuite suite, TestCase testCase)
+    {
+        testCase.Assertions.Add(new TestAssertion { Type = AssertionType.BodyContains });
+        await PersistSuite(suite);
+    }
+
+    private async Task RemoveAssertion(TestSuite suite, TestCase testCase, TestAssertion assertion)
+    {
+        testCase.Assertions.Remove(assertion);
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateAssertionType(TestSuite suite, TestAssertion assertion, AssertionType value)
+    {
+        assertion.Type = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateAssertionJsonPath(TestSuite suite, TestAssertion assertion, string value)
+    {
+        assertion.JsonPath = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateAssertionHeaderName(TestSuite suite, TestAssertion assertion, string value)
+    {
+        assertion.HeaderName = value;
+        await PersistSuite(suite);
+    }
+
+    private async Task UpdateAssertionExpectedValue(TestSuite suite, TestAssertion assertion, string value)
+    {
+        assertion.ExpectedValue = value;
+        await PersistSuite(suite);
+    }
+
     private async Task ExportSuite(TestSuite suite)
     {
         var json = System.Text.Json.JsonSerializer.Serialize(suite, new System.Text.Json.JsonSerializerOptions
@@ -214,6 +417,7 @@
 
         var fileName = $"{suite.Name.Replace(" ", "_")}.testsuite.json";
         await FileExportService.DownloadJsonAsync(fileName, json);
+        Snackbar.Add("Suíte exportada.", Severity.Success);
     }
 
     private async Task OnSuiteFileSelected(InputFileChangeEventArgs e)
@@ -240,17 +444,12 @@
 
             await TestSuiteRepository.SaveAsync(imported);
             _suites = await TestSuiteRepository.GetAllAsync();
+            Snackbar.Add($"Suíte \"{imported.Name}\" importada.", Severity.Success);
         }
         catch (Exception ex)
         {
             _importError = $"Erro ao importar suíte: {ex.Message}";
         }
-    }
-
-    private async Task UpdateCaptureHeader(TestSuite suite, VariableCapture capture, string value)
-    {
-        capture.SourceHeaderName = string.IsNullOrWhiteSpace(value) ? null : value;
-        await PersistSuite(suite);
     }
 
     private async Task RunSuite(TestSuite suite)
@@ -279,11 +478,19 @@
             var executor = new TestExecutor(Http);
             var runner = new TestSuiteRunner(executor);
 
-            var result = await runner.RunAsync(suite, parseResult.Endpoints, _useProxy ? _proxyUrl : null);
+            var baseUrlOverride = _selectedEnvironmentBySuite.GetValueOrDefault(suite.Id);
+            var result = await runner.RunAsync(suite, parseResult.Endpoints, _useProxy ? _proxyUrl : null, baseUrlOverride);
             _results[suite.Id] = result;
+
+            await HistoryRepository.SaveAsync(result);
+            _historyBySuite[suite.Id] = await HistoryRepository.GetBySuiteAsync(suite.Id);
 
             suite.LastRunAt = DateTime.UtcNow;
             await TestSuiteRepository.UpdateAsync(suite);
+
+            Snackbar.Add(
+                result.AllPassed ? "Suíte executada: tudo passou! ✅" : "Suíte executada: houve falhas. ❌",
+                result.AllPassed ? Severity.Success : Severity.Warning);
         }
         finally
         {
@@ -293,9 +500,17 @@
 
     private async Task DeleteSuite(TestSuite suite)
     {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Excluir suíte",
+            $"Tem certeza que deseja excluir a suíte \"{suite.Name}\"? Essa ação não pode ser desfeita.",
+            yesText: "Excluir", cancelText: "Cancelar");
+
+        if (confirmed != true) return;
+
         await TestSuiteRepository.DeleteAsync(suite.Id);
         _suites = await TestSuiteRepository.GetAllAsync();
         _results.Remove(suite.Id);
         _errorsBySuite.Remove(suite.Id);
+        Snackbar.Add("Suíte excluída.", Severity.Info);
     }
 }

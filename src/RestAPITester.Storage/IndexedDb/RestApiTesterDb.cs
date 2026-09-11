@@ -11,4 +11,6 @@ public class RestApiTesterDb : IndexedDB.Blazor.IndexedDb
 
     public IndexedSet<SavedSpec> Specs { get; set; } = null!;
     public IndexedSet<TestSuite> TestSuites { get; set; } = null!;
+    public IndexedSet<ApiEnvironment> Environments { get; set; } = null!;
+    public IndexedSet<TestSuiteExecutionResult> ExecutionHistory { get; set; } = null!;
 }

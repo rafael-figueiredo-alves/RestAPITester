@@ -2,10 +2,6 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
-/// <summary>
-/// Executa uma TestSuite inteira em sequência, propagando variáveis capturadas
-/// (ex: token de login) entre os TestCases.
-/// </summary>
 public class TestSuiteRunner
 {
     private readonly TestExecutor _executor;
@@ -19,8 +15,11 @@ public class TestSuiteRunner
         TestSuite suite,
         IReadOnlyList<EndpointInfo> endpoints,
         string? proxyBaseUrl = null,
+        string? baseUrlOverride = null,
         CancellationToken cancellationToken = default)
     {
+        var effectiveBaseUrl = string.IsNullOrWhiteSpace(baseUrlOverride) ? suite.BaseUrl : baseUrlOverride;
+
         var suiteResult = new TestSuiteExecutionResult
         {
             TestSuiteId = suite.Id,
@@ -44,7 +43,7 @@ public class TestSuiteRunner
             }
 
             var (result, captured) = await _executor.ExecuteAsync(
-                endpoint, testCase, suite.BaseUrl, sessionVariables,
+                endpoint, testCase, effectiveBaseUrl, sessionVariables,
                 proxyBaseUrl: proxyBaseUrl,
                 cancellationToken: cancellationToken);
 

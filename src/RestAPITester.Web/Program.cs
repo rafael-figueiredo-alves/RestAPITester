@@ -16,6 +16,8 @@ builder.Services.AddMudServices();
 builder.Services.AddSingleton<IIndexedDbFactory, IndexedDbFactory>();
 builder.Services.AddScoped<ISpecRepository, IndexedDbSpecRepository>();
 builder.Services.AddScoped<ITestSuiteRepository, IndexedDbTestSuiteRepository>();
+builder.Services.AddScoped<IEnvironmentRepository, IndexedDbEnvironmentRepository>();
+builder.Services.AddScoped<IExecutionHistoryRepository, IndexedDbExecutionHistoryRepository>();
 builder.Services.AddScoped<JsonFileExportService>();
 
 builder.Services.AddScoped(sp => new HttpClient
