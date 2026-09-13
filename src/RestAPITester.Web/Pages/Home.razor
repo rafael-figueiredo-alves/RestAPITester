@@ -326,7 +326,7 @@
 
     private async Task DeleteSavedSpec(SavedSpec spec)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Excluir especificação",
             $"Tem certeza que deseja excluir \"{spec.Name}\"? As suítes que dependem dela deixarão de funcionar.",
             yesText: "Excluir", noText: "Cancelar");

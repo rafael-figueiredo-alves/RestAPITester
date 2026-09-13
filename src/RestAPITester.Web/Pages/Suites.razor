@@ -266,7 +266,7 @@
 
     private async Task DeleteEnvironment(ApiEnvironment env)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Excluir ambiente",
             $"Tem certeza que deseja excluir o ambiente \"{env.Name}\"?",
             yesText: "Excluir", cancelText: "Cancelar");
@@ -321,7 +321,7 @@
 
     private async Task RemoveTestCase(TestSuite suite, TestCase testCase)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Remover teste",
             $"Remover o teste \"{testCase.Name}\" da suíte?",
             yesText: "Remover", cancelText: "Cancelar");
@@ -500,7 +500,7 @@
 
     private async Task DeleteSuite(TestSuite suite)
     {
-        var confirmed = await DialogService.ShowMessageBox(
+        var confirmed = await DialogService.ShowMessageBoxAsync(
             "Excluir suíte",
             $"Tem certeza que deseja excluir a suíte \"{suite.Name}\"? Essa ação não pode ser desfeita.",
             yesText: "Excluir", cancelText: "Cancelar");
