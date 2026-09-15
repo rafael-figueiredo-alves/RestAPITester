@@ -1,6 +1,7 @@
 ﻿@inherits LayoutComponentBase
+@inject IJSRuntime JS
 
-<MudThemeProvider />
+<MudThemeProvider IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -9,6 +10,9 @@
     <MudAppBar Elevation="1" Fixed="false">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
         <MudText Typo="Typo.h5" Class="ml-3">RestAPITester</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit" OnClick="ToggleDarkMode" />
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" Elevation="1" Variant="DrawerVariant.Mini" OpenMiniOnHover="true">
         <NavMenu />
@@ -20,5 +24,23 @@
 
 @code {
     private bool _drawerOpen = true;
+    private bool _isDarkMode;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-dark-mode");
+            _isDarkMode = saved == "true";
+            StateHasChanged();
+        }
+    }
+
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task ToggleDarkMode()
+    {
+        _isDarkMode = !_isDarkMode;
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-dark-mode", _isDarkMode ? "true" : "false");
+    }
 }

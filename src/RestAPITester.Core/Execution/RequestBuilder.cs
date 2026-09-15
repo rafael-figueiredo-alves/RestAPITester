@@ -22,7 +22,7 @@ public class RequestBuilder
         if (endpoint.RequestBody is not null && testCase.RequestBodyJson is not null)
         {
             var body = ResolveVariables(testCase.RequestBodyJson, sessionVariables);
-            request.Content = new StringContent(body, Encoding.UTF8, endpoint.RequestBody.ContentType);
+            request.Content = BuildBodyContent(endpoint.RequestBody.ContentType, body);
         }
 
         if (!string.IsNullOrWhiteSpace(proxyBaseUrl))
@@ -124,4 +124,54 @@ public class RequestBuilder
         HttpMethodType.Options => HttpMethod.Options,
         _ => HttpMethod.Get
     };
+
+    public static string BuildCurlCommand(HttpRequestMessage request, string? requestBodyJson)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"curl -X {request.Method.Method} \"{request.RequestUri}\"");
+
+        foreach (var header in request.Headers)
+            foreach (var value in header.Value)
+                sb.Append($" \\\n  -H \"{header.Key}: {value}\"");
+
+        if (request.Content is not null)
+        {
+            if (request.Content.Headers.ContentType is not null)
+                sb.Append($" \\\n  -H \"Content-Type: {request.Content.Headers.ContentType}\"");
+
+            if (!string.IsNullOrEmpty(requestBodyJson))
+                sb.Append($" \\\n  -d '{requestBodyJson.Replace("'", "'\\''")}'");
+        }
+
+        return sb.ToString();
+    }    
+
+    private static HttpContent BuildBodyContent(string contentType, string body)
+    {
+        if (contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
+        {
+            var pairs = ParseKeyValueLines(body).Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value));
+            return new FormUrlEncodedContent(pairs);
+        }
+
+        if (contentType.Contains("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+        {
+            var multipart = new MultipartFormDataContent();
+            foreach (var (key, value) in ParseKeyValueLines(body))
+                multipart.Add(new StringContent(value), key);
+            return multipart; // define o próprio Content-Type com boundary automaticamente
+        }
+
+        return new StringContent(body, Encoding.UTF8, contentType);
+    }
+
+    private static IEnumerable<(string Key, string Value)> ParseKeyValueLines(string text)
+    {
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('=', 2);
+            if (parts.Length == 2)
+                yield return (parts[0].Trim(), parts[1].Trim());
+        }
+    }    
 }

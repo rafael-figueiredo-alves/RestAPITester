@@ -1,5 +1,6 @@
 ﻿@page "/"
 
+@inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IEnvironmentRepository EnvironmentRepository
@@ -11,11 +12,24 @@
 <MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
     <MudText Typo="Typo.h4" Class="mb-4">Importar especificação OpenAPI</MudText>
 
+    @if (_parseResult is null && _savedSpecs.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-3" Icon="@Icons.Material.Filled.Info">
+            Bem-vindo! Comece importando um arquivo <code>.json</code> com a especificação OpenAPI da sua API,
+            ou cole a URL dela abaixo.
+        </MudAlert>
+    }
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <InputFile OnChange="OnFileSelected" accept=".json" />
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2" Class="mb-2">Ou importar de uma URL</MudText>
+        <div class="d-flex align-center" style="gap: 8px;">
+            <MudTextField T="string" @bind-Value="_importUrl" Label="URL do OpenAPI (.json)" Class="flex-grow-1" />
+            <MudButton Variant="Variant.Outlined" OnClick="ImportFromUrl">Importar</MudButton>
+        </div>        
         @if (_errorMessage is not null)
         {
-            <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
+            <MudAlert Severity="Severity.Error" Class="mt-2">@ErrorMessageHelper.Friendly(_errorMessage)</MudAlert>
         }
 
         @if (_savedSpecs.Count > 0)
@@ -55,7 +69,7 @@
 
         <MudGrid>
             <MudItem xs="4">
-                <MudPaper Class="pa-4" Elevation="2">
+                <MudPaper Class="pa-4" Elevation="2" @onkeydown="OnPanelKeyDown">
                     <MudText Typo="Typo.h6">@_parseResult.Title (@_parseResult.Version)</MudText>
                     <MudText Typo="Typo.body2" Class="mb-3">
                         @_parseResult.Endpoints.Count endpoint(s) encontrado(s)
@@ -100,7 +114,10 @@
                             </MudSelect>
                         }                        
 
-                        <MudTextField @bind-Value="_baseUrl" Label="URL base" Class="mb-3" />
+                        <div class="d-flex align-center mb-3" style="gap: 8px;">
+                            <MudTextField @bind-Value="_baseUrl" Label="URL base" Class="flex-grow-1" />
+                            <MudButton Variant="Variant.Outlined" OnClick="TestConnection">Testar conexão</MudButton>
+                        </div>
 
                         <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local (contorna CORS)" Color="Color.Primary" Class="mb-2" />
                         @if (_useProxy)
@@ -124,11 +141,18 @@
 
                         @if (_selectedEndpoint.RequestBody is not null)
                         {
-                            <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Corpo da requisição</MudText>
-                            <MudTextField @bind-Value="_requestBodyJson" Lines="8" Variant="Variant.Outlined" />
-                            <MudButton Variant="Variant.Text" Class="mt-2" OnClick="GenerateFakeBody">
-                                Gerar dados fictícios
-                            </MudButton>
+                            var isJsonBody = _selectedEndpoint.RequestBody.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
+                            <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">
+                                Corpo da requisição (@_selectedEndpoint.RequestBody.ContentType)
+                            </MudText>
+                            <MudTextField @bind-Value="_requestBodyJson" Lines="8" Variant="Variant.Outlined"
+                                        HelperText="@(isJsonBody ? null : "Um campo por linha, no formato chave=valor")" />
+                            @if (isJsonBody)
+                            {
+                                <MudButton Variant="Variant.Text" Class="mt-2" OnClick="GenerateFakeBody">
+                                    Gerar dados fictícios
+                                </MudButton>
+                            }
                         }
 
                         <MudExpansionPanels Class="mt-3">
@@ -165,16 +189,21 @@
                             </MudText>
                             @if (_executionResult.ErrorMessage is not null)
                             {
-                                <MudAlert Severity="Severity.Error" Class="mt-2">@_executionResult.ErrorMessage</MudAlert>
+                                <MudAlert Severity="Severity.Error" Class="mt-2">@ErrorMessageHelper.Friendly(_executionResult.ErrorMessage)</MudAlert>
                             }
                             <MudTextField T="string" Value="@_executionResult.ResponseBody" Lines="10" ReadOnly="true"
                                           Variant="Variant.Outlined" Class="mt-2" />
+
+                            <div class="d-flex align-center mt-2" style="gap: 8px;">
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyResponseBody">Copiar resposta</MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyCurl">Copiar como cURL</MudButton>
+                            </div>                                          
 
                             <MudDivider Class="my-4" />
                             <MudText Typo="Typo.subtitle2" Class="mb-2">Capturar variável desta resposta</MudText>
                             <div class="d-flex align-center mb-3" style="gap: 8px;">
                                 <MudTextField T="string" @bind-Value="_captureVarName" Label="Nome da variável" Margin="Margin.Dense" />
-                                <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" Dense="true" />
+                                <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" />
                                 <MudTextField T="string" @bind-Value="_captureVarSource"
                                               Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
                                               Margin="Margin.Dense" Class="flex-grow-1" />
@@ -254,11 +283,62 @@
     private List<ApiEnvironment> _environments = new();
     private string _treeSearch = string.Empty;
 
+    private string _importUrl = string.Empty;
+
+    private async Task ImportFromUrl()
+    {
+        _errorMessage = null;
+        if (string.IsNullOrWhiteSpace(_importUrl)) return;
+
+        try
+        {
+            var fetchUrl = _useProxy
+                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(_importUrl)}"
+                : _importUrl;
+
+            var content = await Http.GetStringAsync(fetchUrl);
+
+            var parser = new OpenApiParser();
+            _parseResult = parser.Parse(content);
+
+            if (_parseResult.HasErrors)
+            {
+                _errorMessage = string.Join("; ", _parseResult.Errors);
+                return;
+            }
+
+            _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
+            BuildTree();
+
+            var name = _importUrl.Split('/').LastOrDefault(s => !string.IsNullOrEmpty(s)) ?? "spec-remota.json";
+            await SaveCurrentSpec(content, name);
+            Snackbar.Add("Especificação importada da URL.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao importar da URL: {ex.Message}";
+        }
+    }    
+
     protected override async Task OnInitializedAsync()
     {
         _savedSpecs = await SpecRepository.GetAllAsync();
         _testSuites = await TestSuiteRepository.GetAllAsync();
         _environments = await EnvironmentRepository.GetAllAsync();
+
+        var lastSpecId = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-spec");
+        if (Guid.TryParse(lastSpecId, out var specId))
+        {
+            var spec = _savedSpecs.FirstOrDefault(s => s.Id == specId);
+            if (spec is not null)
+            {
+                await LoadSavedSpec(spec);
+
+                var lastEndpoint = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-endpoint");
+                if (!string.IsNullOrEmpty(lastEndpoint))
+                    await OnEndpointSelected(lastEndpoint);
+            }
+        }
     }
 
     private void OnSearchChanged(string value)
@@ -304,10 +384,11 @@
         _currentSpec = new SavedSpec { Name = fileName, RawJson = content };
         await SpecRepository.SaveAsync(_currentSpec);
         _savedSpecs = await SpecRepository.GetAllAsync();
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-spec", _currentSpec!.Id.ToString());
         Snackbar.Add($"Especificação \"{fileName}\" salva.", Severity.Success);
     }
 
-    private void LoadSavedSpec(SavedSpec spec)
+    private async Task LoadSavedSpec(SavedSpec spec)
     {
         _errorMessage = null;
         var parser = new OpenApiParser();
@@ -322,6 +403,19 @@
 
         _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
         BuildTree();
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-spec", spec.Id.ToString());
+    }
+
+    private async Task OnEndpointSelected(string? operationId)
+    {
+        _selectedOperationId = operationId;
+        _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        _paramValues.Clear();
+        _requestBodyJson = null;
+        _extraHeadersText = string.Empty;
+        _executionResult = null;
+        _expectedStatusCode = null;
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-endpoint", operationId ?? string.Empty);
     }
 
     private async Task DeleteSavedSpec(SavedSpec spec)
@@ -372,17 +466,6 @@
                 }).ToList()
             })
             .ToList();
-    }
-
-    private void OnEndpointSelected(string? operationId)
-    {
-        _selectedOperationId = operationId;
-        _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
-        _paramValues.Clear();
-        _requestBodyJson = null;
-        _extraHeadersText = string.Empty;
-        _executionResult = null;
-        _expectedStatusCode = null;
     }
 
     private static string ParamLabel(ParameterInfo param) => $"{param.Name} ({param.Location})";
@@ -522,4 +605,41 @@
         HttpMethodType.Delete => Color.Error,
         _ => Color.Default
     };
+
+    private async Task CopyResponseBody()
+    {
+        if (_executionResult?.ResponseBody is null) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.ResponseBody);
+        Snackbar.Add("Resposta copiada.", Severity.Success);
+    }
+
+    private async Task CopyCurl()
+    {
+        if (_executionResult?.CurlCommand is null) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.CurlCommand);
+        Snackbar.Add("Comando cURL copiado.", Severity.Success);
+    }  
+
+    private async Task TestConnection()
+    {
+        try
+        {
+            var targetUrl = _useProxy
+                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(_baseUrl)}"
+                : _baseUrl;
+
+            var response = await Http.GetAsync(targetUrl);
+            Snackbar.Add($"Conexão OK — status {(int)response.StatusCode}.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha na conexão: {ex.Message}", Severity.Error);
+        }
+    }  
+
+    private async Task OnPanelKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey && e.Key == "Enter" && !_executing)
+            await ExecuteEndpoint();
+    }        
 }

@@ -63,6 +63,11 @@
                 }
             </MudSelect>
 
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mb-2"
+                    OnClick="@(() => TestConnection(suite))">
+                Testar conexão
+            </MudButton>            
+
             <div class="d-flex align-center mb-2" style="gap: 8px;">
                 <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local" Color="Color.Primary" />
                 @if (_useProxy)
@@ -87,6 +92,9 @@
             <MudButton Variant="Variant.Text" Color="Color.Error" Class="ml-2" OnClick="@(() => DeleteSuite(suite))">
                 Excluir
             </MudButton>
+            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => DuplicateSuite(suite))">
+                Duplicar
+            </MudButton>            
 
             @if (_errorsBySuite.TryGetValue(suite.Id, out var error))
             {
@@ -133,6 +141,8 @@
                                            OnClick="@(() => MoveTestCase(suite, testCase, 1))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
                                            OnClick="@(() => RemoveTestCase(suite, testCase))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                        OnClick="@(() => DuplicateTestCase(suite, testCase))" />                                           
                         </div>
 
                         <MudExpansionPanels Class="mt-2">
@@ -215,7 +225,7 @@
                         @(tc?.Name ?? testResult.TestCaseId.ToString()) — status @testResult.StatusCode — @testResult.DurationMs ms
                         @if (testResult.ErrorMessage is not null)
                         {
-                            <text> — @testResult.ErrorMessage</text>
+                            <text> — @ErrorMessageHelper.Friendly(testResult.ErrorMessage)</text>
                         }
                     </MudAlert>
                 }
@@ -513,4 +523,68 @@
         _errorsBySuite.Remove(suite.Id);
         Snackbar.Add("Suíte excluída.", Severity.Info);
     }
+
+    private async Task TestConnection(TestSuite suite)
+    {
+        var baseUrl = _selectedEnvironmentBySuite.GetValueOrDefault(suite.Id) ?? suite.BaseUrl;
+
+        try
+        {
+            var targetUrl = _useProxy
+                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(baseUrl)}"
+                : baseUrl;
+
+            var response = await Http.GetAsync(targetUrl);
+            Snackbar.Add($"Conexão OK — status {(int)response.StatusCode}.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha na conexão: {ex.Message}", Severity.Error);
+        }
+    }    
+
+    private async Task DuplicateSuite(TestSuite suite)
+    {
+        var clone = new TestSuite
+        {
+            Name = $"{suite.Name} (cópia)",
+            Description = suite.Description,
+            SourceSpecId = suite.SourceSpecId,
+            SourceOpenApiFileName = suite.SourceOpenApiFileName,
+            BaseUrl = suite.BaseUrl,
+            TestCases = suite.TestCases.Select(CloneTestCase).ToList()
+        };
+
+        await TestSuiteRepository.SaveAsync(clone);
+        _suites = await TestSuiteRepository.GetAllAsync();
+        Snackbar.Add("Suíte duplicada.", Severity.Success);
+    }
+
+    private async Task DuplicateTestCase(TestSuite suite, TestCase testCase)
+    {
+        var index = suite.TestCases.IndexOf(testCase);
+        var clone = CloneTestCase(testCase);
+        clone.Name = $"{testCase.Name} (cópia)";
+        suite.TestCases.Insert(index + 1, clone);
+        await PersistSuite(suite);
+        Snackbar.Add("Teste duplicado.", Severity.Success);
+    }
+
+    private static TestCase CloneTestCase(TestCase source) => new()
+    {
+        Name = source.Name,
+        EndpointOperationId = source.EndpointOperationId,
+        ParameterValues = new Dictionary<string, object?>(source.ParameterValues),
+        RequestBodyJson = source.RequestBodyJson,
+        ExpectedStatusCode = source.ExpectedStatusCode,
+        Assertions = source.Assertions.Select(a => new TestAssertion
+        {
+            Type = a.Type, JsonPath = a.JsonPath, HeaderName = a.HeaderName, ExpectedValue = a.ExpectedValue
+        }).ToList(),
+        CapturedVariables = source.CapturedVariables.Select(c => new VariableCapture
+        {
+            VariableName = c.VariableName, JsonPath = c.JsonPath, SourceHeaderName = c.SourceHeaderName
+        }).ToList(),
+        ExtraHeaders = new Dictionary<string, string>(source.ExtraHeaders)
+    };
 }

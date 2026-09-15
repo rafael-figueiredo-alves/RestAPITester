@@ -32,6 +32,9 @@ public class TestExecutor
 
         try
         {
+            using var curlPreview = _requestBuilder.Build(endpoint, testCase, baseUrl, sessionVariables);
+            result.CurlCommand = RequestBuilder.BuildCurlCommand(curlPreview, testCase.RequestBodyJson);
+
             using var request = _requestBuilder.Build(endpoint, testCase, baseUrl, sessionVariables, proxyBaseUrl);
             using var response = await _httpClient.SendAsync(request, cancellationToken);
 
