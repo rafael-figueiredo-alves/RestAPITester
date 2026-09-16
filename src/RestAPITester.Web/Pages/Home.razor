@@ -1,13 +1,12 @@
 ﻿@page "/"
-
-@inject IJSRuntime JS
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
-@inject IEnvironmentRepository EnvironmentRepository
 @inject HttpClient Http
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
+@inject IEnvironmentRepository EnvironmentRepository
 @inject JsonFileExportService FileExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
     <MudText Typo="Typo.h4" Class="mb-4">Importar especificação OpenAPI</MudText>
@@ -19,18 +18,20 @@
             ou cole a URL dela abaixo.
         </MudAlert>
     }
+
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <InputFile OnChange="OnFileSelected" accept=".json" />
+        @if (_errorMessage is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
+        }
+
         <MudDivider Class="my-3" />
         <MudText Typo="Typo.subtitle2" Class="mb-2">Ou importar de uma URL</MudText>
         <div class="d-flex align-center" style="gap: 8px;">
             <MudTextField T="string" @bind-Value="_importUrl" Label="URL do OpenAPI (.json)" Class="flex-grow-1" />
             <MudButton Variant="Variant.Outlined" OnClick="ImportFromUrl">Importar</MudButton>
-        </div>        
-        @if (_errorMessage is not null)
-        {
-            <MudAlert Severity="Severity.Error" Class="mt-2">@ErrorMessageHelper.Friendly(_errorMessage)</MudAlert>
-        }
+        </div>
 
         @if (_savedSpecs.Count > 0)
         {
@@ -69,15 +70,15 @@
 
         <MudGrid>
             <MudItem xs="4">
-                <MudPaper Class="pa-4" Elevation="2" @onkeydown="OnPanelKeyDown">
+                <MudPaper Class="pa-4" Elevation="2">
                     <MudText Typo="Typo.h6">@_parseResult.Title (@_parseResult.Version)</MudText>
                     <MudText Typo="Typo.body2" Class="mb-3">
                         @_parseResult.Endpoints.Count endpoint(s) encontrado(s)
                     </MudText>
 
                     <MudTextField T="string" Value="_treeSearch" ValueChanged="OnSearchChanged"
-                                Label="Buscar endpoint" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                                Immediate="true" Margin="Margin.Dense" Class="mb-3" />
+                                  Label="Buscar endpoint" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true" Margin="Margin.Dense" Class="mb-3" />
 
                     <MudTreeView T="string" Items="@_treeItems" Hover="true"
                                  SelectedValue="_selectedOperationId"
@@ -92,7 +93,7 @@
             <MudItem xs="8">
                 @if (_selectedEndpoint is not null)
                 {
-                    <MudPaper Class="pa-4" Elevation="2">
+                    <MudPaper Class="pa-4" Elevation="2" @onkeydown="OnPanelKeyDown">
                         <MudText Typo="Typo.h6" Class="d-flex align-center">
                             <MudChip T="string" Color="@MethodColor(_selectedEndpoint.Method)" Size="Size.Small" Class="mr-2">
                                 @_selectedEndpoint.Method.ToString().ToUpper()
@@ -112,7 +113,7 @@
                                     <MudSelectItem T="string" Value="@env.BaseUrl">@env.Name (@env.BaseUrl)</MudSelectItem>
                                 }
                             </MudSelect>
-                        }                        
+                        }
 
                         <div class="d-flex align-center mb-3" style="gap: 8px;">
                             <MudTextField @bind-Value="_baseUrl" Label="URL base" Class="flex-grow-1" />
@@ -146,7 +147,7 @@
                                 Corpo da requisição (@_selectedEndpoint.RequestBody.ContentType)
                             </MudText>
                             <MudTextField @bind-Value="_requestBodyJson" Lines="8" Variant="Variant.Outlined"
-                                        HelperText="@(isJsonBody ? null : "Um campo por linha, no formato chave=valor")" />
+                                          HelperText="@(isJsonBody ? null : "Um campo por linha, no formato chave=valor")" />
                             @if (isJsonBody)
                             {
                                 <MudButton Variant="Variant.Text" Class="mt-2" OnClick="GenerateFakeBody">
@@ -157,9 +158,11 @@
 
                         <MudExpansionPanels Class="mt-3">
                             <MudExpansionPanel Text="Opções avançadas">
+                                <MudSwitch @bind-Value="_followRedirects" Label="Seguir redirecionamentos (3xx)" Color="Color.Primary" Class="mb-2" />
+
                                 <MudTextField @bind-Value="_extraHeadersText"
-                                            Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
-                                            Lines="3" Variant="Variant.Outlined" />
+                                              Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
+                                              Lines="3" Variant="Variant.Outlined" />
 
                                 @if (_executionResult is not null)
                                 {
@@ -168,8 +171,8 @@
                                         <MudTextField T="string" @bind-Value="_captureVarName" Label="Nome da variável" Margin="Margin.Dense" />
                                         <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" />
                                         <MudTextField T="string" @bind-Value="_captureVarSource"
-                                                    Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
-                                                    Margin="Margin.Dense" Class="flex-grow-1" />
+                                                      Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
+                                                      Margin="Margin.Dense" Class="flex-grow-1" />
                                         <MudButton Variant="Variant.Outlined" OnClick="CaptureFromLastResult">Capturar</MudButton>
                                     </div>
                                 }
@@ -191,24 +194,32 @@
                             {
                                 <MudAlert Severity="Severity.Error" Class="mt-2">@ErrorMessageHelper.Friendly(_executionResult.ErrorMessage)</MudAlert>
                             }
-                            <MudTextField T="string" Value="@_executionResult.ResponseBody" Lines="10" ReadOnly="true"
+                            <MudTextField T="string" Value="@(FormattedResponseBody(_executionResult.ResponseBody))" Lines="10" ReadOnly="true"
                                           Variant="Variant.Outlined" Class="mt-2" />
 
                             <div class="d-flex align-center mt-2" style="gap: 8px;">
                                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyResponseBody">Copiar resposta</MudButton>
                                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyCurl">Copiar como cURL</MudButton>
-                            </div>                                          
-
-                            <MudDivider Class="my-4" />
-                            <MudText Typo="Typo.subtitle2" Class="mb-2">Capturar variável desta resposta</MudText>
-                            <div class="d-flex align-center mb-3" style="gap: 8px;">
-                                <MudTextField T="string" @bind-Value="_captureVarName" Label="Nome da variável" Margin="Margin.Dense" />
-                                <MudSwitch @bind-Value="_captureFromHeader" Label="De header" Color="Color.Primary" />
-                                <MudTextField T="string" @bind-Value="_captureVarSource"
-                                              Label="@(_captureFromHeader ? "Nome do header (ex: ETag)" : "JSONPath (ex: $.token)")"
-                                              Margin="Margin.Dense" Class="flex-grow-1" />
-                                <MudButton Variant="Variant.Outlined" OnClick="CaptureFromLastResult">Capturar</MudButton>
                             </div>
+
+                            @if (_executionResult.ResponseHeaders.Count > 0)
+                            {
+                                <MudExpansionPanels Class="mt-2">
+                                    <MudExpansionPanel Text="@($"Headers da resposta ({_executionResult.ResponseHeaders.Count})")">
+                                        <MudSimpleTable Dense="true" Hover="true">
+                                            <thead>
+                                                <tr><th>Header</th><th>Valor</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var header in _executionResult.ResponseHeaders)
+                                                {
+                                                    <tr><td>@header.Key</td><td>@header.Value</td></tr>
+                                                }
+                                            </tbody>
+                                        </MudSimpleTable>
+                                    </MudExpansionPanel>
+                                </MudExpansionPanels>
+                            }                            
 
                             <MudDivider Class="my-4" />
                             <MudText Typo="Typo.subtitle2" Class="mb-2">Salvar como teste</MudText>
@@ -251,6 +262,8 @@
     private ParseResult? _parseResult;
     private string? _errorMessage;
     private List<TreeItemData<string>> _treeItems = new();
+    private string _treeSearch = string.Empty;
+    private string _importUrl = string.Empty;
 
     private string? _selectedOperationId;
     private EndpointInfo? _selectedEndpoint;
@@ -258,6 +271,7 @@
     private readonly Dictionary<string, string> _paramValues = new();
     private string? _requestBodyJson;
     private string _extraHeadersText = string.Empty;
+    private bool _followRedirects = true;
     private bool _executing;
     private ExecutionResult? _executionResult;
 
@@ -271,6 +285,7 @@
 
     private List<SavedSpec> _savedSpecs = new();
     private SavedSpec? _currentSpec;
+    private List<ApiEnvironment> _environments = new();
 
     private List<TestSuite> _testSuites = new();
     private string? _selectedSuiteId;
@@ -280,10 +295,58 @@
 
     private readonly SchemaFakeDataGenerator _dataGenerator = new();
 
-    private List<ApiEnvironment> _environments = new();
-    private string _treeSearch = string.Empty;
+    protected override async Task OnInitializedAsync()
+    {
+        _savedSpecs = await SpecRepository.GetAllAsync();
+        _testSuites = await TestSuiteRepository.GetAllAsync();
+        _environments = await EnvironmentRepository.GetAllAsync();
 
-    private string _importUrl = string.Empty;
+        var lastSpecId = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-spec");
+        if (Guid.TryParse(lastSpecId, out var specId))
+        {
+            var spec = _savedSpecs.FirstOrDefault(s => s.Id == specId);
+            if (spec is not null)
+            {
+                await LoadSavedSpec(spec);
+
+                var lastEndpoint = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-endpoint");
+                if (!string.IsNullOrEmpty(lastEndpoint))
+                    await OnEndpointSelected(lastEndpoint);
+            }
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _parseResult = null;
+        _selectedEndpoint = null;
+        _executionResult = null;
+
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var parser = new OpenApiParser();
+            _parseResult = parser.Parse(content);
+
+            if (_parseResult.HasErrors)
+            {
+                _errorMessage = string.Join("; ", _parseResult.Errors);
+                return;
+            }
+
+            _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
+            BuildTree();
+            await SaveCurrentSpec(content, e.File.Name);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao importar: {ex.Message}";
+        }
+    }
 
     private async Task ImportFromUrl()
     {
@@ -318,65 +381,6 @@
         {
             _errorMessage = $"Erro ao importar da URL: {ex.Message}";
         }
-    }    
-
-    protected override async Task OnInitializedAsync()
-    {
-        _savedSpecs = await SpecRepository.GetAllAsync();
-        _testSuites = await TestSuiteRepository.GetAllAsync();
-        _environments = await EnvironmentRepository.GetAllAsync();
-
-        var lastSpecId = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-spec");
-        if (Guid.TryParse(lastSpecId, out var specId))
-        {
-            var spec = _savedSpecs.FirstOrDefault(s => s.Id == specId);
-            if (spec is not null)
-            {
-                await LoadSavedSpec(spec);
-
-                var lastEndpoint = await JS.InvokeAsync<string?>("localStorage.getItem", "restapitester-last-endpoint");
-                if (!string.IsNullOrEmpty(lastEndpoint))
-                    await OnEndpointSelected(lastEndpoint);
-            }
-        }
-    }
-
-    private void OnSearchChanged(string value)
-    {
-        _treeSearch = value;
-        if (_parseResult is not null) BuildTree();
-    }    
-
-    private async Task OnFileSelected(InputFileChangeEventArgs e)
-    {
-        _errorMessage = null;
-        _parseResult = null;
-        _selectedEndpoint = null;
-        _executionResult = null;
-
-        try
-        {
-            using var stream = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-            using var reader = new StreamReader(stream);
-            var content = await reader.ReadToEndAsync();
-
-            var parser = new OpenApiParser();
-            _parseResult = parser.Parse(content);
-
-            if (_parseResult.HasErrors)
-            {
-                _errorMessage = string.Join("; ", _parseResult.Errors);
-                return;
-            }
-
-            _baseUrl = _parseResult.Servers.FirstOrDefault() ?? string.Empty;
-            BuildTree();
-            await SaveCurrentSpec(content, e.File.Name);
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Erro ao importar: {ex.Message}";
-        }
     }
 
     private async Task SaveCurrentSpec(string content, string fileName)
@@ -384,7 +388,7 @@
         _currentSpec = new SavedSpec { Name = fileName, RawJson = content };
         await SpecRepository.SaveAsync(_currentSpec);
         _savedSpecs = await SpecRepository.GetAllAsync();
-        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-spec", _currentSpec!.Id.ToString());
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-spec", _currentSpec.Id.ToString());
         Snackbar.Add($"Especificação \"{fileName}\" salva.", Severity.Success);
     }
 
@@ -406,18 +410,6 @@
         await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-spec", spec.Id.ToString());
     }
 
-    private async Task OnEndpointSelected(string? operationId)
-    {
-        _selectedOperationId = operationId;
-        _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
-        _paramValues.Clear();
-        _requestBodyJson = null;
-        _extraHeadersText = string.Empty;
-        _executionResult = null;
-        _expectedStatusCode = null;
-        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-endpoint", operationId ?? string.Empty);
-    }
-
     private async Task DeleteSavedSpec(SavedSpec spec)
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
@@ -436,6 +428,12 @@
     {
         if (_currentSpec is null) return;
         await FileExportService.DownloadJsonAsync(_currentSpec.Name, _currentSpec.RawJson);
+    }
+
+    private void OnSearchChanged(string value)
+    {
+        _treeSearch = value;
+        if (_parseResult is not null) BuildTree();
     }
 
     private void BuildTree()
@@ -466,6 +464,18 @@
                 }).ToList()
             })
             .ToList();
+    }
+
+    private async Task OnEndpointSelected(string? operationId)
+    {
+        _selectedOperationId = operationId;
+        _selectedEndpoint = _parseResult?.Endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        _paramValues.Clear();
+        _requestBodyJson = null;
+        _extraHeadersText = string.Empty;
+        _executionResult = null;
+        _expectedStatusCode = null;
+        await JS.InvokeVoidAsync("localStorage.setItem", "restapitester-last-endpoint", operationId ?? string.Empty);
     }
 
     private static string ParamLabel(ParameterInfo param) => $"{param.Name} ({param.Location})";
@@ -505,7 +515,8 @@
                 EndpointOperationId = _selectedEndpoint.OperationId,
                 RequestBodyJson = _requestBodyJson,
                 ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
-                ExtraHeaders = ParseExtraHeaders()
+                ExtraHeaders = ParseExtraHeaders(),
+                FollowRedirects = _followRedirects
             };
 
             var executor = new TestExecutor(Http);
@@ -522,6 +533,30 @@
         }
     }
 
+    private async Task OnPanelKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey && e.Key == "Enter" && !_executing)
+            await ExecuteEndpoint();
+    }
+
+    private async Task TestConnection()
+    {
+        try
+        {
+            var targetUrl = _useProxy
+                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(_baseUrl)}" +
+                  (_followRedirects ? "" : "&followRedirects=false")
+                : _baseUrl;
+
+            var response = await Http.GetAsync(targetUrl);
+            Snackbar.Add($"Conexão OK — status {(int)response.StatusCode}.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha na conexão: {ex.Message}", Severity.Error);
+        }
+    }
+
     private void CaptureFromLastResult()
     {
         if (_executionResult is null || string.IsNullOrWhiteSpace(_captureVarName)) return;
@@ -535,6 +570,20 @@
     }
 
     private void RemoveSessionVariable(string key) => _sessionVariables.Remove(key);
+
+    private async Task CopyResponseBody()
+    {
+        if (_executionResult?.ResponseBody is null) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.ResponseBody);
+        Snackbar.Add("Resposta copiada.", Severity.Success);
+    }
+
+    private async Task CopyCurl()
+    {
+        if (_executionResult?.CurlCommand is null) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.CurlCommand);
+        Snackbar.Add("Comando cURL copiado.", Severity.Success);
+    }
 
     private void OnSuiteSelected(string? id)
     {
@@ -573,6 +622,7 @@
             ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
             RequestBodyJson = _requestBodyJson,
             ExtraHeaders = ParseExtraHeaders(),
+            FollowRedirects = _followRedirects,
             ExpectedStatusCode = _expectedStatusCode ?? _executionResult?.StatusCode
         };
 
@@ -582,7 +632,6 @@
         _testSuites = await TestSuiteRepository.GetAllAsync();
         _selectedSuite = _testSuites.FirstOrDefault(s => s.Id == _selectedSuite.Id);
         _selectedSuiteId = _selectedSuite?.Id.ToString();
-
         Snackbar.Add("Teste salvo na suíte.", Severity.Success);
     }
 
@@ -606,40 +655,26 @@
         _ => Color.Default
     };
 
-    private async Task CopyResponseBody()
+    private string FormattedResponseBody(string? responseBody)
     {
-        if (_executionResult?.ResponseBody is null) return;
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.ResponseBody);
-        Snackbar.Add("Resposta copiada.", Severity.Success);
-    }
+        if (string.IsNullOrWhiteSpace(responseBody))
+            return string.Empty;
 
-    private async Task CopyCurl()
-    {
-        if (_executionResult?.CurlCommand is null) return;
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _executionResult.CurlCommand);
-        Snackbar.Add("Comando cURL copiado.", Severity.Success);
-    }  
+            try
+            {
+                using var document = JsonDocument.Parse(responseBody);
 
-    private async Task TestConnection()
-    {
-        try
-        {
-            var targetUrl = _useProxy
-                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(_baseUrl)}"
-                : _baseUrl;
-
-            var response = await Http.GetAsync(targetUrl);
-            Snackbar.Add($"Conexão OK — status {(int)response.StatusCode}.", Severity.Success);
+                return JsonSerializer.Serialize(
+                    document.RootElement,
+                    new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+            }
+            catch (JsonException)
+            {
+                // Não é JSON, então retorna o conteúdo original
+                return responseBody;
+            }
         }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Falha na conexão: {ex.Message}", Severity.Error);
-        }
-    }  
-
-    private async Task OnPanelKeyDown(KeyboardEventArgs e)
-    {
-        if (e.CtrlKey && e.Key == "Enter" && !_executing)
-            await ExecuteEndpoint();
-    }        
-}
+    }   

@@ -16,4 +16,6 @@ public class TestCase
     /// úteis para APIs com conditional requests que não declaram isso como parâmetro na spec.
     /// </summary>
     public Dictionary<string, string> ExtraHeaders { get; set; } = new();
+
+    public bool FollowRedirects { get; set; } = true;
 }

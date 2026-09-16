@@ -63,17 +63,16 @@
                 }
             </MudSelect>
 
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mb-2"
-                    OnClick="@(() => TestConnection(suite))">
-                Testar conexão
-            </MudButton>            
-
-            <div class="d-flex align-center mb-2" style="gap: 8px;">
+            <div class="d-flex align-center mb-2 flex-wrap" style="gap: 8px;">
                 <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local" Color="Color.Primary" />
                 @if (_useProxy)
                 {
                     <MudTextField T="string" @bind-Value="_proxyUrl" Label="URL do proxy" Margin="Margin.Dense" />
                 }
+                <MudSwitch T="bool" @bind-Value="_followRedirectsForConnectionTest" Label="Seguir redirecionamentos (teste de conexão)" Color="Color.Primary" />
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => TestConnection(suite))">
+                    Testar conexão
+                </MudButton>
             </div>
 
             <MudButton Variant="Variant.Filled" Color="Color.Primary"
@@ -89,12 +88,12 @@
             <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => ExportSuite(suite))">
                 Exportar JSON
             </MudButton>
+            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => DuplicateSuite(suite))">
+                Duplicar
+            </MudButton>
             <MudButton Variant="Variant.Text" Color="Color.Error" Class="ml-2" OnClick="@(() => DeleteSuite(suite))">
                 Excluir
             </MudButton>
-            <MudButton Variant="Variant.Text" Class="ml-2" OnClick="@(() => DuplicateSuite(suite))">
-                Duplicar
-            </MudButton>            
 
             @if (_errorsBySuite.TryGetValue(suite.Id, out var error))
             {
@@ -139,14 +138,17 @@
                                            OnClick="@(() => MoveTestCase(suite, testCase, -1))" />
                             <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
                                            OnClick="@(() => MoveTestCase(suite, testCase, 1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                           OnClick="@(() => DuplicateTestCase(suite, testCase))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
                                            OnClick="@(() => RemoveTestCase(suite, testCase))" />
-                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
-                                        OnClick="@(() => DuplicateTestCase(suite, testCase))" />                                           
                         </div>
 
                         <MudExpansionPanels Class="mt-2">
-                            <MudExpansionPanel Text="Opções avançadas (variáveis e asserções)">
+                            <MudExpansionPanel Text="Opções avançadas (variáveis, asserções e rede)">
+                                <MudSwitch T="bool" Value="@testCase.FollowRedirects" Label="Seguir redirecionamentos (3xx)" Color="Color.Primary" Class="mb-2"
+                                           ValueChanged="@(v => UpdateFollowRedirects(suite, testCase, v))" />
+
                                 <MudText Typo="Typo.caption" Class="d-block mb-1">
                                     Variáveis capturadas (ex: token de login, ETag, pra reusar nos próximos testes)
                                 </MudText>
@@ -251,6 +253,7 @@
 
     private bool _useProxy;
     private string _proxyUrl = "http://localhost:5220";
+    private bool _followRedirectsForConnectionTest = true;
 
     private string _newEnvName = string.Empty;
     private string _newEnvUrl = string.Empty;
@@ -279,7 +282,7 @@
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Excluir ambiente",
             $"Tem certeza que deseja excluir o ambiente \"{env.Name}\"?",
-            yesText: "Excluir", cancelText: "Cancelar");
+            yesText: "Excluir", noText: "Cancelar");
 
         if (confirmed != true) return;
 
@@ -334,13 +337,19 @@
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Remover teste",
             $"Remover o teste \"{testCase.Name}\" da suíte?",
-            yesText: "Remover", cancelText: "Cancelar");
+            yesText: "Remover", noText: "Cancelar");
 
         if (confirmed != true) return;
 
         suite.TestCases.Remove(testCase);
         await PersistSuite(suite);
         Snackbar.Add("Teste removido.", Severity.Info);
+    }
+
+    private async Task UpdateFollowRedirects(TestSuite suite, TestCase testCase, bool value)
+    {
+        testCase.FollowRedirects = value;
+        await PersistSuite(suite);
     }
 
     private async Task AddCapture(TestSuite suite, TestCase testCase)
@@ -508,22 +517,6 @@
         }
     }
 
-    private async Task DeleteSuite(TestSuite suite)
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Excluir suíte",
-            $"Tem certeza que deseja excluir a suíte \"{suite.Name}\"? Essa ação não pode ser desfeita.",
-            yesText: "Excluir", cancelText: "Cancelar");
-
-        if (confirmed != true) return;
-
-        await TestSuiteRepository.DeleteAsync(suite.Id);
-        _suites = await TestSuiteRepository.GetAllAsync();
-        _results.Remove(suite.Id);
-        _errorsBySuite.Remove(suite.Id);
-        Snackbar.Add("Suíte excluída.", Severity.Info);
-    }
-
     private async Task TestConnection(TestSuite suite)
     {
         var baseUrl = _selectedEnvironmentBySuite.GetValueOrDefault(suite.Id) ?? suite.BaseUrl;
@@ -531,7 +524,8 @@
         try
         {
             var targetUrl = _useProxy
-                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(baseUrl)}"
+                ? $"{_proxyUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(baseUrl)}" +
+                  (_followRedirectsForConnectionTest ? "" : "&followRedirects=false")
                 : baseUrl;
 
             var response = await Http.GetAsync(targetUrl);
@@ -541,7 +535,23 @@
         {
             Snackbar.Add($"Falha na conexão: {ex.Message}", Severity.Error);
         }
-    }    
+    }
+
+    private async Task DeleteSuite(TestSuite suite)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Excluir suíte",
+            $"Tem certeza que deseja excluir a suíte \"{suite.Name}\"? Essa ação não pode ser desfeita.",
+            yesText: "Excluir", noText: "Cancelar");
+
+        if (confirmed != true) return;
+
+        await TestSuiteRepository.DeleteAsync(suite.Id);
+        _suites = await TestSuiteRepository.GetAllAsync();
+        _results.Remove(suite.Id);
+        _errorsBySuite.Remove(suite.Id);
+        Snackbar.Add("Suíte excluída.", Severity.Info);
+    }
 
     private async Task DuplicateSuite(TestSuite suite)
     {
@@ -577,13 +587,19 @@
         ParameterValues = new Dictionary<string, object?>(source.ParameterValues),
         RequestBodyJson = source.RequestBodyJson,
         ExpectedStatusCode = source.ExpectedStatusCode,
+        FollowRedirects = source.FollowRedirects,
         Assertions = source.Assertions.Select(a => new TestAssertion
         {
-            Type = a.Type, JsonPath = a.JsonPath, HeaderName = a.HeaderName, ExpectedValue = a.ExpectedValue
+            Type = a.Type,
+            JsonPath = a.JsonPath,
+            HeaderName = a.HeaderName,
+            ExpectedValue = a.ExpectedValue
         }).ToList(),
         CapturedVariables = source.CapturedVariables.Select(c => new VariableCapture
         {
-            VariableName = c.VariableName, JsonPath = c.JsonPath, SourceHeaderName = c.SourceHeaderName
+            VariableName = c.VariableName,
+            JsonPath = c.JsonPath,
+            SourceHeaderName = c.SourceHeaderName
         }).ToList(),
         ExtraHeaders = new Dictionary<string, string>(source.ExtraHeaders)
     };

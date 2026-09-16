@@ -28,7 +28,12 @@ public class RequestBuilder
         if (!string.IsNullOrWhiteSpace(proxyBaseUrl))
         {
             var originalUrl = request.RequestUri!.ToString();
-            request.RequestUri = new Uri($"{proxyBaseUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(originalUrl)}");
+            var proxyUri = $"{proxyBaseUrl.TrimEnd('/')}/proxy?target={Uri.EscapeDataString(originalUrl)}";
+
+            if (!testCase.FollowRedirects)
+                proxyUri += "&followRedirects=false";
+
+            request.RequestUri = new Uri(proxyUri);
         }
 
         return request;

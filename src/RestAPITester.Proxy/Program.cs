@@ -2,15 +2,16 @@ using System.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CORS totalmente aberto de propósito: isso é uma ferramenta de dev local,
-// só o seu próprio Blazor (rodando em outra porta local) vai chamá-la.
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
 
-builder.Services.AddHttpClient("proxy-client")
+builder.Services.AddHttpClient("proxy-client-redirect")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = true });
+
+builder.Services.AddHttpClient("proxy-client-noredirect")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 var app = builder.Build();
@@ -28,6 +29,8 @@ app.MapMethods("/proxy", verbs, async (HttpContext context, IHttpClientFactory h
         await context.Response.WriteAsync("Parâmetro 'target' ausente ou inválido.");
         return;
     }
+
+    var followRedirects = !string.Equals(context.Request.Query["followRedirects"], "false", StringComparison.OrdinalIgnoreCase);
 
     using var forwardRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
@@ -48,7 +51,7 @@ app.MapMethods("/proxy", verbs, async (HttpContext context, IHttpClientFactory h
             forwardRequest.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
     }
 
-    var client = httpClientFactory.CreateClient("proxy-client");
+    var client = httpClientFactory.CreateClient(followRedirects ? "proxy-client-redirect" : "proxy-client-noredirect");
     using var response = await client.SendAsync(forwardRequest, HttpCompletionOption.ResponseHeadersRead);
 
     context.Response.StatusCode = (int)response.StatusCode;
