@@ -113,3 +113,36 @@ code {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+html, body, #app {
+    height: 100%;
+    overflow: hidden;
+}
+
+.rat-upload-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 16px;
+    border-radius: 4px;
+    background-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    gap: 8px;
+}
+.rat-upload-button:hover {
+    filter: brightness(0.9);
+}
+.rat-upload-input {
+    display: none;
+}
+
+.mud-drawer .mud-nav-link.active,
+.mud-drawer .mud-nav-link.active .mud-icon-root {
+    color: #38BDF8 !important;
+}
+
+.app-main-content {
+    padding-top: calc(var(--mud-appbar-height) + 16px);
+}

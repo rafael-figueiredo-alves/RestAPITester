@@ -16,6 +16,7 @@ public class TestSuiteRunner
         IReadOnlyList<EndpointInfo> endpoints,
         string? proxyBaseUrl = null,
         string? baseUrlOverride = null,
+        IReadOnlyDictionary<string, string>? initialVariables = null,
         CancellationToken cancellationToken = default)
     {
         var effectiveBaseUrl = string.IsNullOrWhiteSpace(baseUrlOverride) ? suite.BaseUrl : baseUrlOverride;
@@ -26,7 +27,9 @@ public class TestSuiteRunner
             StartedAt = DateTime.UtcNow
         };
 
-        var sessionVariables = new Dictionary<string, string>();
+        var sessionVariables = initialVariables is not null
+            ? new Dictionary<string, string>(initialVariables)
+            : new Dictionary<string, string>();
 
         foreach (var testCase in suite.TestCases)
         {

@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/RestAPITester.Cli/RestAPITester.Cli.csproj" />
     <Project Path="src/RestAPITester.Core/RestAPITester.Core.csproj" />
     <Project Path="src/RestAPITester.Proxy/RestAPITester.Proxy.csproj" />
     <Project Path="src/RestAPITester.Storage/RestAPITester.Storage.csproj" />

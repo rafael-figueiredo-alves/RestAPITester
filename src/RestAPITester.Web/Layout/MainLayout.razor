@@ -1,30 +1,54 @@
 ﻿@inherits LayoutComponentBase
 @inject IJSRuntime JS
 
-<MudThemeProvider IsDarkMode="_isDarkMode" />
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1" Fixed="false">
+    <MudAppBar Elevation="1" Fixed="true">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
         <MudText Typo="Typo.h5" Class="ml-3">RestAPITester</MudText>
         <MudSpacer />
         <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="ToggleDarkMode" />
     </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" Variant="DrawerVariant.Mini" OpenMiniOnHover="true">
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" Variant="DrawerVariant.Mini" OpenMiniOnHover="true" Breakpoint="Breakpoint.SmAndUp" ClipMode="DrawerClipMode.Docked">
         <NavMenu />
     </MudDrawer>
-    <MudMainContent Class="pa-4">
+    <MudMainContent Class="pa-4 app-main-content">
         @Body
     </MudMainContent>
 </MudLayout>
 
 @code {
-    private bool _drawerOpen = false;
+    private bool _drawerOpen = true;
     private bool _isDarkMode;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#1E293B",
+            Secondary = "#334155",
+            AppbarBackground = "#1E293B",
+            AppbarText = "#FFFFFF",
+            DrawerBackground = "#1E293B",
+            DrawerText = "#FFFFFF",
+            DrawerIcon = "#FFFFFF"
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#334155",
+            Secondary = "#475569",
+            AppbarBackground = "#0F172A",
+            AppbarText = "#FFFFFF",
+            DrawerBackground = "#0F172A",
+            DrawerText = "#FFFFFF",
+            DrawerIcon = "#FFFFFF"
+        }
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

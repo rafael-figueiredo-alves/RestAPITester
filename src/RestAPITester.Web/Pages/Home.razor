@@ -20,7 +20,11 @@
     }
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
-        <InputFile OnChange="OnFileSelected" accept=".json" />
+        <label class="rat-upload-button">
+            <MudIcon Icon="@Icons.Material.Filled.UploadFile" Size="Size.Small" />
+            Escolher arquivo OpenAPI (.json)
+            <InputFile OnChange="OnFileSelected" accept=".json" class="rat-upload-input" />
+        </label>
         @if (_errorMessage is not null)
         {
             <MudAlert Severity="Severity.Error" Class="mt-3">@_errorMessage</MudAlert>
@@ -104,13 +108,31 @@
                         {
                             <MudText Typo="Typo.body2" Class="mb-3">@_selectedEndpoint.Summary</MudText>
                         }
+                        @if (_selectedEndpoint.Responses.Count > 0)
+                        {
+                            <MudExpansionPanels Class="mb-3">
+                                <MudExpansionPanel Text="Respostas esperadas (schema da spec)">
+                                    @foreach (var response in _selectedEndpoint.Responses)
+                                    {
+                                        <MudText Typo="Typo.subtitle2" Class="mt-2">
+                                            @response.StatusCode @(response.Description is not null ? $"— {response.Description}" : "")
+                                        </MudText>
+                                        @if (response.SchemaJson is not null)
+                                        {
+                                            <MudTextField T="string" Value="@FormattedResponseBody(response.SchemaJson)" Lines="6" ReadOnly="true"
+                                                        Variant="Variant.Outlined" Class="mb-2" />
+                                        }
+                                    }
+                                </MudExpansionPanel>
+                            </MudExpansionPanels>
+                        }                        
 
                         @if (_environments.Count > 0)
                         {
-                            <MudSelect T="string" Label="Usar ambiente salvo" ValueChanged="@(v => _baseUrl = v ?? _baseUrl)" Margin="Margin.Dense" Class="mb-2">
+                            <MudSelect T="Guid?" Label="Usar ambiente salvo" ValueChanged="OnEnvironmentQuickSelect" Margin="Margin.Dense" Class="mb-2">
                                 @foreach (var env in _environments)
                                 {
-                                    <MudSelectItem T="string" Value="@env.BaseUrl">@env.Name (@env.BaseUrl)</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)env.Id)">@env.Name (@env.BaseUrl)</MudSelectItem>
                                 }
                             </MudSelect>
                         }
@@ -132,11 +154,13 @@
                             @foreach (var param in _selectedEndpoint.Parameters)
                             {
                                 <MudTextField T="string"
-                                              Label="@ParamLabel(param)"
-                                              Value="@GetParamValue(param.Name)"
-                                              ValueChanged="@(v => SetParamValue(param.Name, v))"
-                                              Required="@param.Required"
-                                              Class="mb-2" />
+                                            Label="@ParamLabel(param)"
+                                            Value="@GetParamValue(param.Name)"
+                                            ValueChanged="@(v => SetParamValue(param.Name, v))"
+                                            Required="@param.Required"
+                                            Error="@(param.Required && string.IsNullOrWhiteSpace(GetParamValue(param.Name)))"
+                                            ErrorText="Campo obrigatório"
+                                            Class="mb-2" />
                             }
                         }
 
@@ -180,9 +204,15 @@
                         </MudExpansionPanels>
 
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4 d-block"
-                                   OnClick="ExecuteEndpoint" Disabled="_executing">
+                                OnClick="ExecuteEndpoint" Disabled="_executing || HasMissingRequiredParams">
                             Executar
                         </MudButton>
+                        @if (HasMissingRequiredParams)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1 d-block">
+                                Preencha os parâmetros obrigatórios antes de executar.
+                            </MudText>
+                        }
 
                         @if (_executionResult is not null)
                         {
@@ -200,6 +230,7 @@
                             <div class="d-flex align-center mt-2" style="gap: 8px;">
                                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyResponseBody">Copiar resposta</MudButton>
                                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="CopyCurl">Copiar como cURL</MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ExportExecutionReport">Exportar relatório</MudButton>
                             </div>
 
                             @if (_executionResult.ResponseHeaders.Count > 0)
@@ -535,7 +566,7 @@
 
     private async Task OnPanelKeyDown(KeyboardEventArgs e)
     {
-        if (e.CtrlKey && e.Key == "Enter" && !_executing)
+        if (e.CtrlKey && e.Key == "Enter" && !_executing && !HasMissingRequiredParams)
             await ExecuteEndpoint();
     }
 
@@ -654,6 +685,27 @@
         HttpMethodType.Delete => Color.Error,
         _ => Color.Default
     };
+
+    private bool HasMissingRequiredParams =>
+        _selectedEndpoint?.Parameters.Any(p => p.Required && string.IsNullOrWhiteSpace(GetParamValue(p.Name))) ?? false;
+
+    private async Task ExportExecutionReport()
+    {
+        if (_executionResult is null) return;
+        var json = System.Text.Json.JsonSerializer.Serialize(_executionResult, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await FileExportService.DownloadJsonAsync($"execucao-{_selectedEndpoint?.OperationId}-{DateTime.Now:yyyyMMdd-HHmmss}.json", json);
+        Snackbar.Add("Relatório exportado.", Severity.Success);
+    }
+
+    private void OnEnvironmentQuickSelect(Guid? envId)
+    {
+        var env = _environments.FirstOrDefault(e => e.Id == envId);
+        if (env is null) return;
+
+        _baseUrl = env.BaseUrl;
+        foreach (var (key, value) in env.FixedVariables)
+            _sessionVariables[key] = value;
+    }    
 
     private string FormattedResponseBody(string? responseBody)
     {

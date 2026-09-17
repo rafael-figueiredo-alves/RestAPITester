@@ -22,13 +22,20 @@
         <div class="d-flex align-center mt-2" style="gap: 8px;">
             <MudTextField T="string" @bind-Value="_newEnvName" Label="Nome (ex: Produção)" Margin="Margin.Dense" />
             <MudTextField T="string" @bind-Value="_newEnvUrl" Label="URL base" Margin="Margin.Dense" Class="flex-grow-1" />
-            <MudButton Variant="Variant.Outlined" OnClick="CreateEnvironment">Adicionar</MudButton>
         </div>
+        <MudTextField T="string" @bind-Value="_newEnvVariablesText"
+                    Label="Variáveis fixas (opcional, uma por linha: nome=valor)"
+                    Lines="2" Variant="Variant.Outlined" Class="mt-2" />
+        <MudButton Variant="Variant.Outlined" Class="mt-2" OnClick="CreateEnvironment">Adicionar ambiente</MudButton>
     </MudPaper>
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <MudText Typo="Typo.subtitle2" Class="mb-2">Importar suíte (.json)</MudText>
-        <InputFile OnChange="OnSuiteFileSelected" accept=".json" />
+        <label class="rat-upload-button">
+            <MudIcon Icon="@Icons.Material.Filled.UploadFile" Size="Size.Small" />
+            Escolher arquivo de suíte (.json)
+            <InputFile OnChange="OnSuiteFileSelected" accept=".json" class="rat-upload-input" />
+        </label>
         @if (_importError is not null)
         {
             <MudAlert Severity="Severity.Error" Class="mt-2">@_importError</MudAlert>
@@ -52,14 +59,16 @@
                 }
             </MudText>
 
-            <MudSelect T="string" Label="Ambiente (opcional — sobrepõe a URL base da suíte)"
-                       Value="@_selectedEnvironmentBySuite.GetValueOrDefault(suite.Id)"
-                       ValueChanged="@(v => _selectedEnvironmentBySuite[suite.Id] = v)"
-                       Margin="Margin.Dense" Class="mb-2">
-                <MudSelectItem T="string" Value="@((string?)null)">Usar URL da suíte (@suite.BaseUrl)</MudSelectItem>
+            <MudSelect T="Guid?" Label="Ambiente (opcional — sobrepõe a URL base da suíte)"
+                    Value="@_selectedEnvironmentBySuite.GetValueOrDefault(suite.Id)"
+                    ValueChanged="@(v => _selectedEnvironmentBySuite[suite.Id] = v)"
+                    Margin="Margin.Dense" Class="mb-2">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Usar URL da suíte (@suite.BaseUrl)</MudSelectItem>
                 @foreach (var env in _environments)
                 {
-                    <MudSelectItem T="string" Value="@env.BaseUrl">@env.Name (@env.BaseUrl)</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@((Guid?)env.Id)">
+                        @env.Name (@env.BaseUrl)@(env.FixedVariables.Count > 0 ? $" — {env.FixedVariables.Count} var(s)" : "")
+                    </MudSelectItem>
                 }
             </MudSelect>
 
@@ -109,10 +118,14 @@
                 {
                     @foreach (var entry in history)
                     {
-                        <MudAlert Severity="@(entry.AllPassed ? Severity.Success : Severity.Error)" Dense="true" Class="mb-1">
-                            @entry.StartedAt.ToLocalTime() — @(entry.AllPassed ? "Tudo passou" : "Alguma falha")
-                            — @entry.Results.Count(r => r.Success)/@entry.Results.Count teste(s) ok
-                        </MudAlert>
+                        <div class="d-flex align-center mb-1" style="gap: 8px;">
+                            <MudAlert Severity="@(entry.AllPassed ? Severity.Success : Severity.Error)" Dense="true" Class="flex-grow-1">
+                                @entry.StartedAt.ToLocalTime() — @(entry.AllPassed ? "Tudo passou" : "Alguma falha")
+                                — @entry.Results.Count(r => r.Success)/@entry.Results.Count teste(s) ok
+                            </MudAlert>
+                            <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small"
+                                        OnClick="@(() => ExportExecutionReport(suite, entry))" />
+                        </div>
                     }
                 }
                 else
@@ -220,6 +233,10 @@
                     Resultado: @(result.AllPassed ? "Tudo passou ✅" : "Alguma falha ❌")
                 </MudText>
 
+                <MudButton Variant="Variant.Text" Size="Size.Small" Class="mb-2" OnClick="@(() => ExportExecutionReport(suite, result))">
+                    Exportar relatório desta execução
+                </MudButton>                
+
                 @foreach (var testResult in result.Results)
                 {
                     var tc = suite.TestCases.FirstOrDefault(t => t.Id == testResult.TestCaseId);
@@ -237,6 +254,8 @@
 </MudContainer>
 
 @code {
+    private string _newEnvVariablesText = string.Empty;
+
     private static readonly AssertionType[] _assertionTypes = Enum.GetValues<AssertionType>()
         .Where(t => t != AssertionType.StatusCode)
         .ToArray();
@@ -248,7 +267,12 @@
     private readonly Dictionary<Guid, string> _errorsBySuite = new();
     private readonly Dictionary<Guid, bool> _expandedSuites = new();
     private readonly Dictionary<Guid, bool> _expandedHistory = new();
-    private readonly Dictionary<Guid, string?> _selectedEnvironmentBySuite = new();
+    private readonly Dictionary<Guid, Guid?> _selectedEnvironmentBySuite = new();
+
+    private ApiEnvironment? GetSelectedEnvironment(Guid suiteId) =>
+        _selectedEnvironmentBySuite.TryGetValue(suiteId, out var envId) && envId.HasValue
+            ? _environments.FirstOrDefault(e => e.Id == envId.Value)
+            : null;
     private Guid? _runningSuiteId;
 
     private bool _useProxy;
@@ -270,10 +294,19 @@
     {
         if (string.IsNullOrWhiteSpace(_newEnvName) || string.IsNullOrWhiteSpace(_newEnvUrl)) return;
 
-        await EnvironmentRepository.SaveAsync(new ApiEnvironment { Name = _newEnvName, BaseUrl = _newEnvUrl });
+        var variables = new Dictionary<string, string>();
+        foreach (var line in _newEnvVariablesText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('=', 2);
+            if (parts.Length == 2)
+                variables[parts[0].Trim()] = parts[1].Trim();
+        }
+
+        await EnvironmentRepository.SaveAsync(new ApiEnvironment { Name = _newEnvName, BaseUrl = _newEnvUrl, FixedVariables = variables });
         _environments = await EnvironmentRepository.GetAllAsync();
         _newEnvName = string.Empty;
         _newEnvUrl = string.Empty;
+        _newEnvVariablesText = string.Empty;
         Snackbar.Add("Ambiente adicionado.", Severity.Success);
     }
 
@@ -497,8 +530,11 @@
             var executor = new TestExecutor(Http);
             var runner = new TestSuiteRunner(executor);
 
-            var baseUrlOverride = _selectedEnvironmentBySuite.GetValueOrDefault(suite.Id);
-            var result = await runner.RunAsync(suite, parseResult.Endpoints, _useProxy ? _proxyUrl : null, baseUrlOverride);
+            var selectedEnv = GetSelectedEnvironment(suite.Id);
+            var result = await runner.RunAsync(
+                suite, parseResult.Endpoints, _useProxy ? _proxyUrl : null,
+                baseUrlOverride: selectedEnv?.BaseUrl,
+                initialVariables: selectedEnv?.FixedVariables);
             _results[suite.Id] = result;
 
             await HistoryRepository.SaveAsync(result);
@@ -519,7 +555,7 @@
 
     private async Task TestConnection(TestSuite suite)
     {
-        var baseUrl = _selectedEnvironmentBySuite.GetValueOrDefault(suite.Id) ?? suite.BaseUrl;
+        var baseUrl = GetSelectedEnvironment(suite.Id)?.BaseUrl ?? suite.BaseUrl;
 
         try
         {
@@ -603,4 +639,11 @@
         }).ToList(),
         ExtraHeaders = new Dictionary<string, string>(source.ExtraHeaders)
     };
+
+    private async Task ExportExecutionReport(TestSuite suite, TestSuiteExecutionResult result)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await FileExportService.DownloadJsonAsync($"relatorio-{suite.Name.Replace(" ", "_")}-{result.StartedAt:yyyyMMdd-HHmmss}.json", json);
+        Snackbar.Add("Relatório exportado.", Severity.Success);
+    }    
 }

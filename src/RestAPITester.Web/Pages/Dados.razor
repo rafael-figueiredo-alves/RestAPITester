@@ -26,7 +26,11 @@
             Importa um arquivo de backup gerado anteriormente. Os itens restaurados recebem novos
             identificadores, então não substituem o que já existe — apenas adicionam.
         </MudText>
-        <InputFile OnChange="OnBackupFileSelected" accept=".json" />
+        <label class="rat-upload-button">
+            <MudIcon Icon="@Icons.Material.Filled.UploadFile" Size="Size.Small" />
+            Escolher arquivo de backup (.json)
+            <InputFile OnChange="OnBackupFileSelected" accept=".json" class="rat-upload-input" />
+        </label>
     </MudPaper>
 
     <MudPaper Class="pa-4" Elevation="2">
@@ -71,7 +75,6 @@
                 return;
             }
 
-            // Mapeia Id antigo -> novo, pra manter o vínculo suíte<->spec mesmo trocando os Ids.
             var specIdMap = new Dictionary<Guid, Guid>();
 
             foreach (var spec in backup.Specs)
