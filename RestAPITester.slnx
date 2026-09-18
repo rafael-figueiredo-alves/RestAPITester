@@ -5,6 +5,7 @@
     <Project Path="src/RestAPITester.Proxy/RestAPITester.Proxy.csproj" />
     <Project Path="src/RestAPITester.Storage/RestAPITester.Storage.csproj" />
     <Project Path="src/RestAPITester.Web/RestAPITester.Web.csproj" />
+    <Project Path="src/RestAPITester/RestAPITester.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/RestAPITester.Core.Tests/RestAPITester.Core.Tests.csproj" />

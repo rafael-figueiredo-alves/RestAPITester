@@ -1,4 +1,6 @@
 ﻿@page "/"
+
+@inject NavigationManager Navigation
 @inject HttpClient Http
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
@@ -8,7 +10,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
-<MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
+<MudContainer MaxWidth="MaxWidth.False">
     <MudText Typo="Typo.h4" Class="mb-4">Importar especificação OpenAPI</MudText>
 
     @if (_parseResult is null && _savedSpecs.Count == 0)
@@ -306,8 +308,8 @@
     private bool _executing;
     private ExecutionResult? _executionResult;
 
-    private bool _useProxy;
-    private string _proxyUrl = "http://localhost:5220";
+    private bool _useProxy = true;
+    private string _proxyUrl = string.Empty;
 
     private readonly Dictionary<string, string> _sessionVariables = new();
     private string _captureVarName = string.Empty;
@@ -328,6 +330,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _proxyUrl = Navigation.BaseUri.TrimEnd('/');
         _savedSpecs = await SpecRepository.GetAllAsync();
         _testSuites = await TestSuiteRepository.GetAllAsync();
         _environments = await EnvironmentRepository.GetAllAsync();
@@ -729,4 +732,4 @@
                 return responseBody;
             }
         }
-    }   
+    }

@@ -1,4 +1,6 @@
 @page "/suites"
+
+@inject NavigationManager Navigation
 @inject HttpClient Http
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
@@ -8,7 +10,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+<MudContainer MaxWidth="MaxWidth.Large">
     <MudText Typo="Typo.h4" Class="mb-4">Suítes de Teste</MudText>
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
@@ -275,8 +277,8 @@
             : null;
     private Guid? _runningSuiteId;
 
-    private bool _useProxy;
-    private string _proxyUrl = "http://localhost:5220";
+    private bool _useProxy = true;
+    private string _proxyUrl = string.Empty;
     private bool _followRedirectsForConnectionTest = true;
 
     private string _newEnvName = string.Empty;
@@ -286,6 +288,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _proxyUrl = Navigation.BaseUri.TrimEnd('/');
         _suites = await TestSuiteRepository.GetAllAsync();
         _environments = await EnvironmentRepository.GetAllAsync();
     }

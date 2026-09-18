@@ -14,16 +14,16 @@
         <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="ToggleDarkMode" />
     </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" Variant="DrawerVariant.Mini" OpenMiniOnHover="true" Breakpoint="Breakpoint.SmAndUp" ClipMode="DrawerClipMode.Docked">
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" Variant="DrawerVariant.Mini" OpenMiniOnHover="false" Breakpoint="Breakpoint.SmAndUp" ClipMode="DrawerClipMode.Docked">
         <NavMenu />
     </MudDrawer>
-    <MudMainContent Class="pa-4 app-main-content">
+    <MudMainContent Class="app-main-content">
         @Body
     </MudMainContent>
 </MudLayout>
 
 @code {
-    private bool _drawerOpen = true;
+    private bool _drawerOpen = false;
     private bool _isDarkMode;
 
     private readonly MudTheme _theme = new()
