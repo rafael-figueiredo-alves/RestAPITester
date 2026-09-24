@@ -80,6 +80,42 @@ scripts e pipelines.
 - Validação de campos obrigatórios e visualização do schema esperado da resposta
 - Modo escuro, copiar resposta/cURL, atalho `Ctrl+Enter`, continuar de onde parou
 
+## Visão do sistema
+
+O RestAPITester reúne importação de especificações OpenAPI, execução manual de
+requisições e testes automatizados em uma única interface. A sequência abaixo
+mostra o fluxo principal da aplicação, da tela inicial à análise dos resultados.
+
+### Tela inicial
+
+<p align="center">
+   <img src="doc_images/HomePage.png" alt="Tela inicial do RestAPITester" width="900">
+</p>
+
+### Modo escuro e backup
+
+<p align="center">
+   <img src="doc_images/DarkModeBackup.png" alt="Modo escuro e opções de backup" width="900">
+</p>
+
+### Criação e organização de suítes
+
+<p align="center">
+   <img src="doc_images/SuiteTestes.png" alt="Tela de criação e organização de suítes de testes" width="900">
+</p>
+
+### Execução dos testes
+
+<p align="center">
+   <img src="doc_images/TestesExecution.png" alt="Tela de execução dos testes" width="900">
+</p>
+
+### Resultado da execução
+
+<p align="center">
+   <img src="doc_images/TestesExecutionResult.png" alt="Resultado da execução dos testes" width="900">
+</p>
+
 ## Limitações conhecidas
 
 - `multipart/form-data` suporta apenas campos de texto (`chave=valor` por linha) — sem upload de arquivo binário real.
