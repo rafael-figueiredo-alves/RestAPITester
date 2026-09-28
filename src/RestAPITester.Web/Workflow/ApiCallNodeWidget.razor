@@ -1,0 +1,17 @@
+@using Blazor.Diagrams.Components.Renderers
+
+<div class="workflow-node workflow-node--api-call">
+    <MudIcon Icon="@Icons.Material.Filled.Http" Size="Size.Small" Class="mr-1" />
+    <div class="workflow-node__body">
+        <div class="workflow-node__title">@Node.Title</div>
+        <div class="workflow-node__subtitle">@Node.EndpointLabel</div>
+    </div>
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer @key="port" Port="port" Class="default" />
+    }
+</div>
+
+@code {
+    [Parameter] public ApiCallNodeModel Node { get; set; } = null!;
+}
