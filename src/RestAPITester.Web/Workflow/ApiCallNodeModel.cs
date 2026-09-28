@@ -16,6 +16,9 @@ public class ApiCallNodeModel : NodeModel
 
         Title = WorkflowNode.Title;
         Size = new Size(220, 60);
+
+        AddPort(PortAlignment.Left);        
+        AddPort(PortAlignment.Right);
     }
 
     public WorkflowNode WorkflowNode { get; }

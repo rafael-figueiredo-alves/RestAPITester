@@ -88,7 +88,7 @@
 
         if (_draggedNodeType == "api-call")
         {
-            AddApiCallNode(new Point(x, y));
+            _diagram.Nodes.Add(new ApiCallNodeModel(new Point(x, y)));
         }
 
         _draggedNodeType = null;
@@ -163,12 +163,4 @@
         PortModel port => port.Parent,
         _ => null
     };
-
-    private ApiCallNodeModel AddApiCallNode(Point position)
-    {
-        var node = _diagram.Nodes.Add(new ApiCallNodeModel(position));
-        node.AddPort(PortAlignment.Left);
-        node.AddPort(PortAlignment.Right);
-        return node;
-    }
 }
