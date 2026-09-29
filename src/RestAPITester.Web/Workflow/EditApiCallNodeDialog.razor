@@ -1,0 +1,104 @@
+@using RestAPITester.Core.Models
+@using RestAPITester.Core.OpenApi
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Nome do nó" @bind-Value="_nodeTitle" Class="mb-2" />
+
+        <MudSelect T="Guid" Label="Especificação" Value="_specId" ValueChanged="OnSpecChanged" Class="mb-2">
+            @foreach (var spec in SavedSpecs)
+            {
+                <MudSelectItem T="Guid" Value="@spec.Id">@spec.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        @if (_endpoints.Count > 0)
+        {
+            <MudSelect T="string" Label="Endpoint" Value="_operationId" ValueChanged="OnEndpointChanged" Class="mb-2">
+                @foreach (var endpoint in _endpoints)
+                {
+                    <MudSelectItem T="string" Value="@endpoint.OperationId">
+                        @endpoint.Method.ToString().ToUpper() @endpoint.Path
+                    </MudSelectItem>
+                }
+            </MudSelect>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(_operationId is null)">Salvar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public List<SavedSpec> SavedSpecs { get; set; } = new();
+    [Parameter] public ApiCallNodeModel Node { get; set; } = null!;
+
+    private Guid _specId;
+    private List<EndpointInfo> _endpoints = new();
+    private string? _operationId;
+    private string _nodeTitle = string.Empty;
+    private string? _suggestedTitle;
+
+    protected override void OnInitialized()
+    {
+        _nodeTitle = Node.WorkflowNode.Title;
+        _operationId = Node.WorkflowNode.ApiCallTestCase?.EndpointOperationId;
+        _suggestedTitle = Node.WorkflowNode.ApiCallTestCase?.Name;
+
+        if (_nodeTitle == "Chamada de API" && !string.IsNullOrWhiteSpace(_suggestedTitle))
+            _nodeTitle = _suggestedTitle;
+
+        _specId = Node.WorkflowNode.ApiCallSpecId;
+        LoadEndpoints(_specId);
+    }
+
+    private void OnSpecChanged(Guid specId)
+    {
+        _specId = specId;
+        LoadEndpoints(specId);
+    }
+
+    private void LoadEndpoints(Guid specId)
+    {
+        var spec = SavedSpecs.FirstOrDefault(s => s.Id == specId);
+        if (spec is null)
+        {
+            _endpoints = new();
+            return;
+        }
+
+        var parser = new OpenApiParser();
+        _endpoints = parser.Parse(spec.RawJson).Endpoints;
+    }
+
+    private void OnEndpointChanged(string? operationId)
+    {
+        _operationId = operationId;
+        var endpoint = _endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        if (endpoint is null) return;
+
+        var shouldUpdateTitle = string.IsNullOrWhiteSpace(_nodeTitle)
+            || _nodeTitle == "Chamada de API"
+            || _nodeTitle == _suggestedTitle;
+        _suggestedTitle = $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}";
+
+        if (shouldUpdateTitle)
+            _nodeTitle = _suggestedTitle;
+    }
+
+    private void Save()
+    {
+        var endpoint = _endpoints.FirstOrDefault(e => e.OperationId == _operationId);
+        if (endpoint is null) return;
+
+        var nodeTitle = string.IsNullOrWhiteSpace(_nodeTitle)
+            ? $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}"
+            : _nodeTitle.Trim();
+
+        MudDialog.Close(DialogResult.Ok((endpoint, _specId, nodeTitle)));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

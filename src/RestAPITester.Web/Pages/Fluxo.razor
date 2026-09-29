@@ -2,17 +2,45 @@
 @using Blazor.Diagrams
 @using Blazor.Diagrams.Core.Geometry
 @using Blazor.Diagrams.Core.Models
-@using Blazor.Diagrams.Core.Models.Base
+@using Blazor.Diagrams.Core.Anchors
+@using Blazor.Diagrams.Core.PathGenerators
+@using Blazor.Diagrams.Core.Routers
 @using Blazor.Diagrams.Components
 @using Blazor.Diagrams.Options
 @using RestAPITester.Web.Workflow
+@using RestAPITester.Core.Execution
+@using RestAPITester.Core.Persistence
+@using RestAPITester.Storage.FileExport
+@inject HttpClient Http
 @inject IJSRuntime JS
+@inject ISpecRepository SpecRepository
+@inject IWorkflowRepository WorkflowRepository
+@inject JsonFileExportService FileExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
-    <MudText Typo="Typo.h4" Class="mb-4">Fluxo (em construção)</MudText>
-    <MudText Typo="Typo.body2" Class="mb-3">
-        Passo 3: arraste o item da paleta à esquerda pra dentro do canvas.
-    </MudText>
+    <MudText Typo="Typo.h4" Class="mb-4">Fluxo</MudText>
+
+    <MudPaper Class="pa-3 mb-3" Elevation="2">
+        <div class="d-flex align-center flex-wrap" style="gap: 8px;">
+            <MudTextField T="string" @bind-Value="_workflowName" Label="Nome do fluxo" Margin="Margin.Dense" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveWorkflow">Salvar</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="NewWorkflow">Novo</MudButton>
+            <MudSelect T="string" Label="Fluxos salvos" ValueChanged="OnLoadWorkflowSelected" Margin="Margin.Dense" Style="min-width:220px">
+                @foreach (var wf in _workflows)
+                {
+                    <MudSelectItem T="string" Value="@wf.Id.ToString()">@wf.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Text" OnClick="ExportWorkflow">Exportar JSON</MudButton>
+            <label class="rat-upload-button">
+                <MudIcon Icon="@Icons.Material.Filled.UploadFile" Size="MudBlazor.Size.Small" />
+                Importar
+                <InputFile OnChange="OnImportWorkflow" accept=".json" class="rat-upload-input" />
+            </label>
+        </div>
+    </MudPaper>
 
     <MudGrid>
         <MudItem xs="2">
@@ -28,7 +56,7 @@
         </MudItem>
 
         <MudItem xs="10">
-            <MudPaper Class="pa-2" Elevation="2" Style="height: 70vh; overflow: hidden;">
+            <MudPaper Class="pa-2" Elevation="2" Style="height: 55vh; overflow: hidden;">
                 <div @ref="_canvasContainer"
                      style="width: 100%; height: 100%;"
                      @ondragover:preventDefault="true"
@@ -41,20 +69,61 @@
         </MudItem>
     </MudGrid>
 
-    <MudButton Variant="Variant.Outlined" Class="mt-3" OnClick="ShowWorkflowJson">
-        Ver JSON do fluxo (depuração)
-    </MudButton>
+    <MudPaper Class="pa-3 mt-3" Elevation="2">
+        <div class="d-flex align-center flex-wrap" style="gap: 8px;">
+            <MudTextField T="string" @bind-Value="_baseUrl" Label="URL base" Class="flex-grow-1" />
+            <MudSwitch @bind-Value="_useProxy" Label="Usar proxy local" Color="Color.Primary" />
+            @if (_useProxy)
+            {
+                <MudTextField T="string" @bind-Value="_proxyUrl" Label="URL do proxy" />
+            }
+        </div>
 
-    @if (_workflowJson is not null)
-    {
-        <MudTextField T="string" Value="@_workflowJson" Lines="14" ReadOnly="true" Variant="Variant.Outlined" Class="mt-2" />
-    }    
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" OnClick="RunWorkflow" Disabled="_running">
+            Executar fluxo
+        </MudButton>
+
+        @if (_runError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@_runError</MudAlert>
+        }
+
+        @if (_running)
+        {
+            <MudPaper Class="pa-3 mt-3" Outlined="true">
+                <MudText Typo="Typo.subtitle2">
+                    Executando etapa @_executionStepNumber: @_activeNodeTitle
+                </MudText>
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-2" />
+            </MudPaper>
+        }
+    </MudPaper>
 </MudContainer>
 
 @code {
     private BlazorDiagram _diagram = null!;
     private ElementReference _canvasContainer;
     private string? _draggedNodeType;
+
+    private List<SavedSpec> _savedSpecs = new();
+    private List<WorkflowDefinition> _workflows = new();
+    private Guid? _currentWorkflowId;
+    private string _workflowName = "Novo fluxo";
+
+    private string _baseUrl = string.Empty;
+    private bool _useProxy;
+    private string _proxyUrl = "http://localhost:5220";
+    private bool _running;
+    private string? _runError;
+    private WorkflowExecutionResult? _lastResult;
+    private int _executionStepNumber;
+    private string _activeNodeTitle = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _savedSpecs = await SpecRepository.GetAllAsync();
+        _workflows = await WorkflowRepository.GetAllAsync();
+    }
 
     protected override void OnInitialized()
     {
@@ -66,12 +135,79 @@
             Zoom = { Minimum = 0.25, Maximum = 2.0, Inverse = false }
         };
 
+        options.Links.DefaultRouter = new OrthogonalRouter();
+        options.Links.DefaultPathGenerator = new StraightPathGenerator(12);
+        options.Links.Factory = (diagram, source, target) =>
+        {
+            if (source is not PortModel sourcePort)
+                throw new InvalidOperationException("A conexão deve começar em uma porta.");
+
+            return new LinkModel(new SinglePortAnchor(sourcePort), target)
+            {
+                TargetMarker = LinkMarker.Arrow,
+                Color = "var(--mud-palette-text-secondary)",
+                SelectedColor = "var(--mud-palette-primary)",
+                Width = 2
+            };
+        };
+
         _diagram = new BlazorDiagram(options);
+        _diagram.RegisterComponent<StartNodeModel, StartNodeWidget>();
         _diagram.RegisterComponent<ApiCallNodeModel, ApiCallNodeWidget>();
 
-        var startNode = _diagram.Nodes.Add(new NodeModel(new Point(80, 100)));
-        startNode.Title = "Início";
-        startNode.AddPort(PortAlignment.Right);
+        AddStartNode(new Point(80, 100));
+    }
+
+    private StartNodeModel AddStartNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        var node = _diagram.Nodes.Add(new StartNodeModel(position, workflowNode));
+        node.AddPort(PortAlignment.Right);
+        return node;
+    }
+
+    private ApiCallNodeModel AddApiCallNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        var node = _diagram.Nodes.Add(new ApiCallNodeModel(position, workflowNode));
+        node.OnEditRequested = () => _ = OpenEditDialog(node);
+        return node;
+    }
+
+    private async Task OpenEditDialog(ApiCallNodeModel node)
+    {
+        var parameters = new DialogParameters<EditApiCallNodeDialog>
+        {
+            { x => x.SavedSpecs, _savedSpecs },
+            { x => x.Node, node }
+        };
+
+        var dialogRef = await DialogService.ShowAsync<EditApiCallNodeDialog>("Configurar chamada de API", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled) return;
+
+        if (result.Data is (EndpointInfo endpoint, Guid specId, string nodeTitle))
+        {
+            node.WorkflowNode.Title = nodeTitle;
+            node.Title = nodeTitle;
+            node.WorkflowNode.ApiCallTestCase = new TestCase
+            {
+                Name = $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}",
+                EndpointOperationId = endpoint.OperationId
+            };
+            node.WorkflowNode.ApiCallSpecId = specId;
+
+            if (string.IsNullOrWhiteSpace(_baseUrl))
+            {
+                var spec = _savedSpecs.FirstOrDefault(s => s.Id == specId);
+                if (spec is not null)
+                {
+                    var parsed = new OpenApiParser().Parse(spec.RawJson);
+                    _baseUrl = parsed.Servers.FirstOrDefault() ?? string.Empty;
+                }
+            }
+
+            node.Refresh();
+        }
     }
 
     private async Task OnDrop(DragEventArgs e)
@@ -80,15 +216,12 @@
 
         var rect = await JS.InvokeAsync<BoundingRect>("getBoundingRect", _canvasContainer);
 
-        // Converte a posição do mouse (relativa à tela) pra posição dentro do
-        // diagrama, descontando o quanto o canvas está "arrastado" (pan) e
-        // ajustando pelo nível de zoom atual.
         var x = (e.ClientX - rect.Left - _diagram.Pan.X) / _diagram.Zoom;
         var y = (e.ClientY - rect.Top - _diagram.Pan.Y) / _diagram.Zoom;
 
         if (_draggedNodeType == "api-call")
         {
-            _diagram.Nodes.Add(new ApiCallNodeModel(new Point(x, y)));
+            AddApiCallNode(new Point(x, y));
         }
 
         _draggedNodeType = null;
@@ -100,36 +233,312 @@
         public double Top { get; set; }
     }
 
-    private string? _workflowJson;
+    private void NewWorkflow()
+    {
+        _currentWorkflowId = null;
+        _workflowName = "Novo fluxo";
+        _diagram.Nodes.Clear();
+        _diagram.Links.Clear();
+        AddStartNode(new Point(80, 100));
+        _lastResult = null;
+        _runError = null;
+        _executionStepNumber = 0;
+        _activeNodeTitle = string.Empty;
+    }
 
-    private void ShowWorkflowJson()
+    private async Task SaveWorkflow()
     {
         var workflow = BuildWorkflowDefinition();
-        _workflowJson = System.Text.Json.JsonSerializer.Serialize(workflow, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        workflow.Name = _workflowName;
+        workflow.BaseUrl = _baseUrl;
+
+        if (_currentWorkflowId is Guid existingId)
+        {
+            workflow.Id = existingId;
+            await WorkflowRepository.UpdateAsync(workflow);
+        }
+        else
+        {
+            await WorkflowRepository.SaveAsync(workflow);
+            _currentWorkflowId = workflow.Id;
+        }
+
+        _workflows = await WorkflowRepository.GetAllAsync();
+        Snackbar.Add("Fluxo salvo.", Severity.Success);
+    }
+
+    private void OnLoadWorkflowSelected(string? idText)
+    {
+        if (!Guid.TryParse(idText, out var id)) return;
+        var workflow = _workflows.FirstOrDefault(w => w.Id == id);
+        if (workflow is null) return;
+
+        _currentWorkflowId = workflow.Id;
+        _workflowName = workflow.Name;
+        _baseUrl = workflow.BaseUrl;
+        LoadWorkflowIntoCanvas(workflow);
+        _lastResult = null;
+        _runError = null;
+        _executionStepNumber = 0;
+        _activeNodeTitle = string.Empty;
+    }
+
+    private void LoadWorkflowIntoCanvas(WorkflowDefinition workflow)
+    {
+        _diagram.Nodes.Clear();
+        _diagram.Links.Clear();
+
+        var nodeMap = new Dictionary<Guid, NodeModel>();
+
+        foreach (var workflowNode in workflow.Nodes)
+        {
+            var position = new Point(workflowNode.PositionX, workflowNode.PositionY);
+
+            NodeModel node = workflowNode.Type switch
+            {
+                WorkflowNodeType.ApiCall => AddApiCallNode(position, workflowNode),
+                _ => AddStartNode(position, workflowNode)
+            };
+
+            nodeMap[workflowNode.Id] = node;
+        }
+
+        foreach (var connection in workflow.Connections)
+        {
+            if (!nodeMap.TryGetValue(connection.SourceNodeId, out var source)) continue;
+            if (!nodeMap.TryGetValue(connection.TargetNodeId, out var target)) continue;
+
+            var deltaX = target.Position.X + (target.Size?.Width ?? 0) / 2 - source.Position.X - (source.Size?.Width ?? 0) / 2;
+            var deltaY = target.Position.Y + (target.Size?.Height ?? 0) / 2 - source.Position.Y - (source.Size?.Height ?? 0) / 2;
+            var useHorizontalPorts = Math.Abs(deltaX) >= Math.Abs(deltaY);
+            var sourceAlignment = useHorizontalPorts
+                ? deltaX >= 0 ? PortAlignment.Right : PortAlignment.Left
+                : deltaY >= 0 ? PortAlignment.Bottom : PortAlignment.Top;
+            var targetAlignment = useHorizontalPorts
+                ? deltaX >= 0 ? PortAlignment.Left : PortAlignment.Right
+                : deltaY >= 0 ? PortAlignment.Top : PortAlignment.Bottom;
+
+            var sourcePort = source.Ports.FirstOrDefault(p => p.Alignment == sourceAlignment);
+            var targetPort = target.Ports.FirstOrDefault(p => p.Alignment == targetAlignment);
+
+            if (sourcePort is not null && targetPort is not null)
+            {
+                _diagram.Links.Add(new LinkModel(sourcePort, targetPort)
+                {
+                    Router = new OrthogonalRouter(),
+                    PathGenerator = new StraightPathGenerator(12),
+                    TargetMarker = LinkMarker.Arrow,
+                    Color = "var(--mud-palette-text-secondary)",
+                    SelectedColor = "var(--mud-palette-primary)",
+                    Width = 2
+                });
+            }
+        }
+    }
+
+    private async Task ExportWorkflow()
+    {
+        var workflow = BuildWorkflowDefinition();
+        workflow.Name = _workflowName;
+        workflow.BaseUrl = _baseUrl;
+
+        var json = System.Text.Json.JsonSerializer.Serialize(workflow, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await FileExportService.DownloadJsonAsync($"{_workflowName.Replace(" ", "_")}.workflow.json", json);
+    }
+
+    private async Task OnImportWorkflow(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var imported = System.Text.Json.JsonSerializer.Deserialize<WorkflowDefinition>(content);
+            if (imported is null)
+            {
+                Snackbar.Add("Arquivo inválido.", Severity.Error);
+                return;
+            }
+
+            imported.Id = Guid.NewGuid();
+            _currentWorkflowId = imported.Id;
+            _workflowName = imported.Name;
+            _baseUrl = imported.BaseUrl;
+            LoadWorkflowIntoCanvas(imported);
+
+            await WorkflowRepository.SaveAsync(imported);
+            _workflows = await WorkflowRepository.GetAllAsync();
+            Snackbar.Add("Fluxo importado.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao importar: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task RunWorkflow()
+    {
+        ClearExecutionHighlights();
+        _running = true;
+        _runError = null;
+        _lastResult = null;
+
+        try
+        {
+            var workflow = BuildWorkflowDefinition();
+            workflow.BaseUrl = _baseUrl;
+
+            var specIds = workflow.Nodes
+                .Where(n => n.Type == WorkflowNodeType.ApiCall && n.ApiCallSpecId != Guid.Empty)
+                .Select(n => n.ApiCallSpecId)
+                .Distinct()
+                .ToList();
+
+            var allEndpoints = new List<EndpointInfo>();
+            foreach (var specId in specIds)
+            {
+                var spec = _savedSpecs.FirstOrDefault(s => s.Id == specId);
+                if (spec is null) continue;
+
+                var parsed = new OpenApiParser().Parse(spec.RawJson);
+                allEndpoints.AddRange(parsed.Endpoints);
+            }
+
+            var runner = new WorkflowRunner(new TestExecutor(Http));
+            _lastResult = await runner.RunAsync(
+                workflow,
+                allEndpoints,
+                _useProxy ? _proxyUrl : null,
+                onNodeStarting: OnWorkflowNodeStarting);
+
+        }
+        catch (Exception ex)
+        {
+            _runError = ex.Message;
+        }
+        finally
+        {
+            _running = false;
+            SetExecutingNode(null);
+        }
+
+        if (_lastResult is not null)
+        {
+            SetSuccessfulNodes(_lastResult.NodeResults.Where(result => result.Success).Select(result => result.NodeId));
+            await InvokeAsync(StateHasChanged);
+
+            var parameters = new DialogParameters<WorkflowExecutionResultDialog>
+            {
+                { x => x.Result, _lastResult }
+            };
+            var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium };
+            try
+            {
+                var dialogRef = await DialogService.ShowAsync<WorkflowExecutionResultDialog>("Resultado da execução", parameters, options);
+                await dialogRef.Result;
+            }
+            finally
+            {
+                ClearExecutionHighlights();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task OnWorkflowNodeStarting(Guid nodeId)
+    {
+        _executionStepNumber++;
+        SetExecutingNode(nodeId);
+        _activeNodeTitle = _diagram.Nodes
+            .Select(GetWorkflowNode)
+            .FirstOrDefault(node => node?.Id == nodeId)?.Title ?? "Nó";
+
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
+    }
+
+    private void SetExecutingNode(Guid? nodeId)
+    {
+        foreach (var node in _diagram.Nodes)
+        {
+            switch (node)
+            {
+                case ApiCallNodeModel apiCallNode:
+                {
+                    var isExecuting = apiCallNode.WorkflowNode.Id == nodeId;
+                    if (apiCallNode.IsExecuting != isExecuting)
+                    {
+                        apiCallNode.IsExecuting = isExecuting;
+                        apiCallNode.Refresh();
+                    }
+                    break;
+                }
+                case StartNodeModel startNode:
+                {
+                    var isExecuting = startNode.WorkflowNode.Id == nodeId;
+                    if (startNode.IsExecuting != isExecuting)
+                    {
+                        startNode.IsExecuting = isExecuting;
+                        startNode.Refresh();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    private void SetSuccessfulNodes(IEnumerable<Guid> successfulNodeIds)
+    {
+        var successfulIds = successfulNodeIds.ToHashSet();
+
+        foreach (var node in _diagram.Nodes)
+        {
+            switch (node)
+            {
+                case ApiCallNodeModel apiCallNode:
+                {
+                    var succeeded = successfulIds.Contains(apiCallNode.WorkflowNode.Id);
+                    if (apiCallNode.ExecutionSucceeded != succeeded)
+                    {
+                        apiCallNode.ExecutionSucceeded = succeeded;
+                        apiCallNode.Refresh();
+                    }
+                    break;
+                }
+                case StartNodeModel startNode:
+                {
+                    var succeeded = successfulIds.Contains(startNode.WorkflowNode.Id);
+                    if (startNode.ExecutionSucceeded != succeeded)
+                    {
+                        startNode.ExecutionSucceeded = succeeded;
+                        startNode.Refresh();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    private void ClearExecutionHighlights()
+    {
+        SetExecutingNode(null);
+        SetSuccessfulNodes(Array.Empty<Guid>());
     }
 
     private WorkflowDefinition BuildWorkflowDefinition()
     {
-        var workflow = new WorkflowDefinition { Name = "Fluxo de teste" };
+        var workflow = new WorkflowDefinition { Name = _workflowName };
         var nodeIdMap = new Dictionary<NodeModel, Guid>();
 
         foreach (var node in _diagram.Nodes)
         {
-            WorkflowNode workflowNode;
-
-            if (node is ApiCallNodeModel apiCallNode)
+            WorkflowNode workflowNode = node switch
             {
-                workflowNode = apiCallNode.WorkflowNode;
-            }
-            else
-            {
-                // Qualquer nó genérico (como o "Início") vira um WorkflowNode do tipo Start.
-                workflowNode = new WorkflowNode
-                {
-                    Type = WorkflowNodeType.Start,
-                    Title = node.Title ?? "Início"
-                };
-            }
+                ApiCallNodeModel apiCallNode => apiCallNode.WorkflowNode,
+                StartNodeModel startNode => startNode.WorkflowNode,
+                _ => new WorkflowNode { Type = WorkflowNodeType.Start, Title = node.Title ?? "Nó" }
+            };
 
             workflowNode.PositionX = node.Position.X;
             workflowNode.PositionY = node.Position.Y;
@@ -157,7 +566,14 @@
         return workflow;
     }
 
-    private static NodeModel? GetNodeFromLinkEndpoint(ILinkable? model) => model switch
+    private static WorkflowNode? GetWorkflowNode(NodeModel node) => node switch
+    {
+        ApiCallNodeModel apiCallNode => apiCallNode.WorkflowNode,
+        StartNodeModel startNode => startNode.WorkflowNode,
+        _ => null
+    };
+
+    private static NodeModel? GetNodeFromLinkEndpoint(Blazor.Diagrams.Core.Models.Base.ILinkable? model) => model switch
     {
         NodeModel node => node,
         PortModel port => port.Parent,

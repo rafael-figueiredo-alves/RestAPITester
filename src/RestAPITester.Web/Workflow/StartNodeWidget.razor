@@ -1,0 +1,14 @@
+@using Blazor.Diagrams.Components.Renderers
+
+<div class="workflow-node workflow-node--start @(Node.IsExecuting ? "workflow-node--executing" : Node.ExecutionSucceeded ? "workflow-node--succeeded" : string.Empty)">
+    <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="MudBlazor.Size.Small" Class="mr-1" />
+    <div class="workflow-node__title">@Node.Title</div>
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer @key="port" Port="port" Class="default" />
+    }
+</div>
+
+@code {
+    [Parameter] public StartNodeModel Node { get; set; } = null!;
+}

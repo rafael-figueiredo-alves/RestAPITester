@@ -31,4 +31,7 @@ public class WorkflowNode
     /// <summary>Usados quando Type == Condition (implementação vem num passo futuro).</summary>
     public string? ConditionJsonPath { get; set; }
     public string? ConditionExpectedValue { get; set; }
+
+    /// <summary>De qual spec salva veio o endpoint escolhido neste nó (Type == ApiCall).</summary>
+    public Guid ApiCallSpecId { get; set; }
 }

@@ -4,18 +4,18 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Web.Workflow;
 
-public class ApiCallNodeModel : NodeModel
+public class StartNodeModel : NodeModel
 {
-    public ApiCallNodeModel(Point position, WorkflowNode? workflowNode = null) : base(position)
+    public StartNodeModel(Point position, WorkflowNode? workflowNode = null) : base(position)
     {
         WorkflowNode = workflowNode ?? new WorkflowNode
         {
-            Type = WorkflowNodeType.ApiCall,
-            Title = "Chamada de API"
+            Type = WorkflowNodeType.Start,
+            Title = "Início"
         };
 
         Title = WorkflowNode.Title;
-        Size = new Size(220, 60);
+        Size = new Size(140, 60);
 
         AddPort(PortAlignment.Left);
         AddPort(PortAlignment.Right);
@@ -24,10 +24,6 @@ public class ApiCallNodeModel : NodeModel
     }
 
     public WorkflowNode WorkflowNode { get; }
-    public string EndpointLabel => WorkflowNode.ApiCallTestCase?.Name ?? "(nenhum endpoint selecionado)";
     public bool IsExecuting { get; set; }
     public bool ExecutionSucceeded { get; set; }
-
-    /// <summary>Disparado pelo widget quando o usuário clica no ícone de editar.</summary>
-    public Action? OnEditRequested { get; set; }
 }

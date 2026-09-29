@@ -13,7 +13,7 @@ public class IndexedDbTestSuiteRepository : ITestSuiteRepository
         _factory = factory;
     }
 
-    private Task<RestApiTesterDb> GetDbAsync() => _factory.Create<RestApiTesterDb>("RestAPITesterDb", 3);
+    private Task<RestApiTesterDb> GetDbAsync() => _factory.Create<RestApiTesterDb>("RestAPITesterDb", 4);
 
     public async Task SaveAsync(TestSuite suite)
     {

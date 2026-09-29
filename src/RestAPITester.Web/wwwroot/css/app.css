@@ -183,6 +183,24 @@ html, body, #app {
     right: 0;
     top: 50%;
 }
+.workflow-node .diagram-port.top {
+    top: 0;
+    left: 50%;
+}
+.workflow-node .diagram-port.bottom {
+    bottom: 0;
+    left: 50%;
+}
+.workflow-node .diagram-port.top,
+.workflow-node .diagram-port.bottom {
+    opacity: 0;
+}
+.workflow-node:hover .diagram-port.top,
+.workflow-node:hover .diagram-port.bottom,
+.workflow-node .diagram-port.top.has-links,
+.workflow-node .diagram-port.bottom.has-links {
+    opacity: 1;
+}
 .workflow-node .diagram-port:hover,
 .workflow-node .diagram-port.has-links {
     background-color: var(--mud-palette-primary);
@@ -194,6 +212,12 @@ html, body, #app {
 .workflow-node__subtitle {
     font-size: 0.75rem;
     opacity: 0.7;
+}
+
+.diagram-link path {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 120ms ease-in-out;
 }
 
 .workflow-palette-item {
@@ -208,4 +232,55 @@ html, body, #app {
 }
 .workflow-palette-item:active {
     cursor: grabbing;
+}
+
+.workflow-node--start {
+    border-color: #22C55E;
+}
+
+.workflow-node--executing {
+    border-color: var(--mud-palette-primary);
+    outline: 3px solid color-mix(in srgb, var(--mud-palette-primary) 28%, transparent);
+    outline-offset: 3px;
+    animation: workflow-node-pulse 1.2s ease-in-out infinite;
+}
+
+.workflow-node--succeeded {
+    border-color: #22C55E;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #22C55E 28%, transparent);
+}
+
+@keyframes workflow-node-pulse {
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--mud-palette-primary) 18%, transparent);
+    }
+}
+
+.mud-theme-dark .workflow-node {
+    border-color: #64748B;
+}
+
+.mud-theme-dark .workflow-node--start {
+    border-color: #4ADE80;
+}
+
+.mud-theme-dark .workflow-node .diagram-port {
+    border: 2px solid #94A3B8;
+    background-color: color-mix(in srgb, var(--mud-palette-surface) 82%, #CBD5E1);
+    box-shadow: 0 0 0 2px var(--mud-palette-surface);
+}
+
+.mud-theme-dark .workflow-node .diagram-port:hover,
+.mud-theme-dark .workflow-node .diagram-port.has-links {
+    border-color: #CBD5E1;
+    background-color: #64748B;
+}
+
+.mud-theme-dark .workflow-node--executing {
+    border-color: #93C5FD;
+}
+
+.mud-theme-dark .workflow-node--succeeded {
+    border-color: #4ADE80;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #4ADE80 32%, transparent);
 }

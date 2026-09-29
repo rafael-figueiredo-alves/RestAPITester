@@ -1,0 +1,49 @@
+@using RestAPITester.Core.Models
+
+<MudDialog>
+    <DialogContent>
+        <MudAlert Severity="@(Result.AllPassed ? Severity.Success : Severity.Error)" Dense="true" Class="mb-3">
+            @(Result.AllPassed ? "Todas as etapas passaram." : "A execução terminou com falhas.")
+        </MudAlert>
+
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            @Result.NodeResults.Count etapa(s) executada(s) · @((Result.FinishedAt - Result.StartedAt).TotalMilliseconds.ToString("0")) ms
+        </MudText>
+
+        @foreach (var nodeResult in Result.NodeResults)
+        {
+            <MudPaper Outlined="true" Class="pa-3 mb-2">
+                <div class="d-flex align-center" style="gap: 12px;">
+                    <MudIcon Icon="@(nodeResult.Success ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)"
+                             Color="@(nodeResult.Success ? Color.Success : Color.Error)" />
+                    <div class="flex-grow-1">
+                        <MudText Typo="Typo.subtitle2">@nodeResult.NodeTitle</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @nodeResult.NodeType · @nodeResult.DurationMs ms
+                            @if (nodeResult.ApiCallResult is not null)
+                            {
+                                <text> · HTTP @nodeResult.ApiCallResult.StatusCode</text>
+                            }
+                        </MudText>
+                        @if (!string.IsNullOrWhiteSpace(nodeResult.ErrorMessage))
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Error" Class="mt-1">
+                                @nodeResult.ErrorMessage
+                            </MudText>
+                        }
+                    </div>
+                </div>
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public WorkflowExecutionResult Result { get; set; } = null!;
+
+    private void Close() => MudDialog.Close();
+}
