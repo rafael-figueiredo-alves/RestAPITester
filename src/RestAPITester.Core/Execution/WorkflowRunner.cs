@@ -3,10 +3,6 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
-/// <summary>
-/// Executa um WorkflowDefinition percorrendo o grafo a partir do nó Start,
-/// seguindo as conexões em sequência.
-/// </summary>
 public class WorkflowRunner
 {
     private readonly TestExecutor _executor;
@@ -63,20 +59,40 @@ public class WorkflowRunner
             if (onNodeStarting is not null)
                 await onNodeStarting(currentNode.Id);
 
-            var nodeResult = await ExecuteNodeAsync(currentNode, workflow, endpoints, sessionVariables, proxyBaseUrl, cancellationToken);
+            var lastApiResult = result.NodeResults.LastOrDefault(r => r.ApiCallResult is not null)?.ApiCallResult;
+
+            var nodeResult = await ExecuteNodeAsync(
+                currentNode, workflow, endpoints, sessionVariables, lastApiResult, proxyBaseUrl, cancellationToken);
             result.NodeResults.Add(nodeResult);
 
             if (!nodeResult.Success)
-                break; // por enquanto, uma falha interrompe o fluxo inteiro
+                break;
 
-            var nextConnection = workflow.Connections.FirstOrDefault(c => c.SourceNodeId == currentNode.Id);
-            currentNode = nextConnection is null
-                ? null
-                : workflow.Nodes.FirstOrDefault(n => n.Id == nextConnection.TargetNodeId);
+            currentNode = GetNextNode(currentNode, nodeResult, workflow);
         }
 
         result.FinishedAt = DateTime.UtcNow;
         return result;
+    }
+
+    /// <summary>
+    /// Decide qual nó vem a seguir. Para nós de Condition, segue a conexão cujo
+    /// Label bate com o ramo avaliado ("Sim"/"Não"); para os demais, segue a
+    /// única conexão de saída (sem Label).
+    /// </summary>
+    private static WorkflowNode? GetNextNode(WorkflowNode currentNode, WorkflowNodeExecutionResult currentResult, WorkflowDefinition workflow)
+    {
+        var outgoing = workflow.Connections.Where(c => c.SourceNodeId == currentNode.Id).ToList();
+
+        if (currentNode.Type == WorkflowNodeType.Condition && currentResult.ConditionResult.HasValue)
+        {
+            var branchLabel = currentResult.ConditionResult.Value ? "Sim" : "Não";
+            var branchConnection = outgoing.FirstOrDefault(c => string.Equals(c.Label, branchLabel, StringComparison.OrdinalIgnoreCase));
+            return branchConnection is null ? null : workflow.Nodes.FirstOrDefault(n => n.Id == branchConnection.TargetNodeId);
+        }
+
+        var next = outgoing.FirstOrDefault(c => string.IsNullOrEmpty(c.Label));
+        return next is null ? null : workflow.Nodes.FirstOrDefault(n => n.Id == next.TargetNodeId);
     }
 
     private async Task<WorkflowNodeExecutionResult> ExecuteNodeAsync(
@@ -84,6 +100,7 @@ public class WorkflowRunner
         WorkflowDefinition workflow,
         IReadOnlyList<EndpointInfo> endpoints,
         Dictionary<string, string> sessionVariables,
+        ExecutionResult? lastApiResult,
         string? proxyBaseUrl,
         CancellationToken cancellationToken)
     {
@@ -137,8 +154,27 @@ public class WorkflowRunner
             }
 
             case WorkflowNodeType.Condition:
+            {
+                if (string.IsNullOrWhiteSpace(node.ConditionJsonPath))
+                {
+                    stopwatch.Stop();
+                    return Fail(node, stopwatch, "Nó de condição sem JSONPath configurado.");
+                }
+
+                var actualValue = JsonPathHelper.EvaluateFirst(lastApiResult?.ResponseBody, node.ConditionJsonPath);
+                var conditionMet = string.Equals(actualValue, node.ConditionExpectedValue, StringComparison.Ordinal);
+
                 stopwatch.Stop();
-                return Fail(node, stopwatch, "Nós de Condição ainda não são executáveis — vem num passo futuro.");
+                return new WorkflowNodeExecutionResult
+                {
+                    NodeId = node.Id,
+                    NodeTitle = node.Title,
+                    NodeType = node.Type,
+                    Success = true,
+                    ConditionResult = conditionMet,
+                    DurationMs = stopwatch.ElapsedMilliseconds
+                };
+            }
 
             default:
                 stopwatch.Stop();

@@ -11,6 +11,8 @@
 @using RestAPITester.Core.Execution
 @using RestAPITester.Core.Persistence
 @using RestAPITester.Storage.FileExport
+
+@inject NavigationManager Navigation
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject ISpecRepository SpecRepository
@@ -52,7 +54,19 @@
                     <MudIcon Icon="@Icons.Material.Filled.Http" Size="MudBlazor.Size.Small" Class="mr-1" />
                     Chamada de API
                 </div>
-            </MudPaper>
+                <div class="workflow-palette-item mt-2"
+                    draggable="true"
+                    @ondragstart="@(() => _draggedNodeType = "condition")">
+                    <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="MudBlazor.Size.Small" Class="mr-1" />
+                    Condição
+                </div> 
+                <div class="workflow-palette-item mt-2"
+                    draggable="true"
+                    @ondragstart="@(() => _draggedNodeType = "delay")">
+                    <MudIcon Icon="@Icons.Material.Filled.Timer" Size="MudBlazor.Size.Small" Class="mr-1" />
+                    Aguardar
+                </div>                               
+            </MudPaper>            
         </MudItem>
 
         <MudItem xs="10">
@@ -111,7 +125,7 @@
     private string _workflowName = "Novo fluxo";
 
     private string _baseUrl = string.Empty;
-    private bool _useProxy;
+    private bool _useProxy = true;
     private string _proxyUrl = "http://localhost:5220";
     private bool _running;
     private string? _runError;
@@ -121,6 +135,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _proxyUrl = Navigation.BaseUri.TrimEnd('/');
         _savedSpecs = await SpecRepository.GetAllAsync();
         _workflows = await WorkflowRepository.GetAllAsync();
     }
@@ -154,6 +169,8 @@
         _diagram = new BlazorDiagram(options);
         _diagram.RegisterComponent<StartNodeModel, StartNodeWidget>();
         _diagram.RegisterComponent<ApiCallNodeModel, ApiCallNodeWidget>();
+        _diagram.RegisterComponent<ConditionNodeModel, ConditionNodeWidget>();
+        _diagram.RegisterComponent<DelayNodeModel, DelayNodeWidget>();
 
         AddStartNode(new Point(80, 100));
     }
@@ -223,6 +240,14 @@
         {
             AddApiCallNode(new Point(x, y));
         }
+        else if (_draggedNodeType == "condition")
+        {
+            AddConditionNode(new Point(x, y));
+        }
+        else if (_draggedNodeType == "delay")
+        {
+            AddDelayNode(new Point(x, y));
+        }        
 
         _draggedNodeType = null;
     }
@@ -297,6 +322,8 @@
             NodeModel node = workflowNode.Type switch
             {
                 WorkflowNodeType.ApiCall => AddApiCallNode(position, workflowNode),
+                WorkflowNodeType.Condition => AddConditionNode(position, workflowNode),
+                WorkflowNodeType.Delay => AddDelayNode(position, workflowNode),
                 _ => AddStartNode(position, workflowNode)
             };
 
@@ -318,7 +345,15 @@
                 ? deltaX >= 0 ? PortAlignment.Left : PortAlignment.Right
                 : deltaY >= 0 ? PortAlignment.Top : PortAlignment.Bottom;
 
-            var sourcePort = source.Ports.FirstOrDefault(p => p.Alignment == sourceAlignment);
+            PortModel? sourcePort;
+            if (source is ConditionNodeModel conditionSource && connection.Label is not null)
+            {
+                sourcePort = connection.Label == "Sim" ? conditionSource.TruePort : conditionSource.FalsePort;
+            }
+            else
+            {
+                sourcePort = source.Ports.FirstOrDefault(p => p.Alignment == sourceAlignment);
+            }
             var targetPort = target.Ports.FirstOrDefault(p => p.Alignment == targetAlignment);
 
             if (sourcePort is not null && targetPort is not null)
@@ -474,6 +509,26 @@
                     }
                     break;
                 }
+                case ConditionNodeModel conditionNode:
+                {
+                    var isExecuting = conditionNode.WorkflowNode.Id == nodeId;
+                    if (conditionNode.IsExecuting != isExecuting)
+                    {
+                        conditionNode.IsExecuting = isExecuting;
+                        conditionNode.Refresh();
+                    }
+                    break;
+                }   
+                case DelayNodeModel delayNode:
+                {
+                    var isExecuting = delayNode.WorkflowNode.Id == nodeId;
+                    if (delayNode.IsExecuting != isExecuting)
+                    {
+                        delayNode.IsExecuting = isExecuting;
+                        delayNode.Refresh();
+                    }
+                    break;
+                }                              
                 case StartNodeModel startNode:
                 {
                     var isExecuting = startNode.WorkflowNode.Id == nodeId;
@@ -506,6 +561,26 @@
                     }
                     break;
                 }
+                case ConditionNodeModel conditionNode:
+                {
+                    var succeeded = successfulIds.Contains(conditionNode.WorkflowNode.Id);
+                    if (conditionNode.ExecutionSucceeded != succeeded)
+                    {
+                        conditionNode.ExecutionSucceeded = succeeded;
+                        conditionNode.Refresh();
+                    }
+                    break;
+                }   
+                case DelayNodeModel delayNode:
+                {
+                    var succeeded = successfulIds.Contains(delayNode.WorkflowNode.Id);
+                    if (delayNode.ExecutionSucceeded != succeeded)
+                    {
+                        delayNode.ExecutionSucceeded = succeeded;
+                        delayNode.Refresh();
+                    }
+                    break;
+                }                              
                 case StartNodeModel startNode:
                 {
                     var succeeded = successfulIds.Contains(startNode.WorkflowNode.Id);
@@ -536,6 +611,8 @@
             WorkflowNode workflowNode = node switch
             {
                 ApiCallNodeModel apiCallNode => apiCallNode.WorkflowNode,
+                ConditionNodeModel conditionNode => conditionNode.WorkflowNode,
+                DelayNodeModel delayNode => delayNode.WorkflowNode,
                 StartNodeModel startNode => startNode.WorkflowNode,
                 _ => new WorkflowNode { Type = WorkflowNodeType.Start, Title = node.Title ?? "Nó" }
             };
@@ -556,10 +633,18 @@
             if (!nodeIdMap.TryGetValue(sourceNode, out var sourceId)) continue;
             if (!nodeIdMap.TryGetValue(targetNode, out var targetId)) continue;
 
+            string? label = null;
+            if (sourceNode is ConditionNodeModel conditionSource && link.Source.Model is PortModel sourcePortModel)
+            {
+                if (sourcePortModel == conditionSource.TruePort) label = "Sim";
+                else if (sourcePortModel == conditionSource.FalsePort) label = "Não";
+            }
+
             workflow.Connections.Add(new WorkflowConnection
             {
                 SourceNodeId = sourceId,
-                TargetNodeId = targetId
+                TargetNodeId = targetId,
+                Label = label
             });
         }
 
@@ -569,6 +654,8 @@
     private static WorkflowNode? GetWorkflowNode(NodeModel node) => node switch
     {
         ApiCallNodeModel apiCallNode => apiCallNode.WorkflowNode,
+        ConditionNodeModel conditionNode => conditionNode.WorkflowNode,
+        DelayNodeModel delayNode => delayNode.WorkflowNode,
         StartNodeModel startNode => startNode.WorkflowNode,
         _ => null
     };
@@ -579,4 +666,53 @@
         PortModel port => port.Parent,
         _ => null
     };
+
+    private ConditionNodeModel AddConditionNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        var node = _diagram.Nodes.Add(new ConditionNodeModel(position, workflowNode));
+        node.OnEditRequested = () => _ = OpenConditionEditDialog(node);
+        return node;
+    }
+
+    private async Task OpenConditionEditDialog(ConditionNodeModel node)
+    {
+        var parameters = new DialogParameters<EditConditionNodeDialog> { { x => x.Node, node } };
+        var dialogRef = await DialogService.ShowAsync<EditConditionNodeDialog>("Configurar condição", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled) return;
+
+        if (result.Data is (string title, string jsonPath, string expectedValue))
+        {
+            node.WorkflowNode.Title = string.IsNullOrWhiteSpace(title) ? "Condição" : title;
+            node.Title = node.WorkflowNode.Title;
+            node.WorkflowNode.ConditionJsonPath = jsonPath;
+            node.WorkflowNode.ConditionExpectedValue = expectedValue;
+            node.Refresh();
+        }
+    }    
+
+    private DelayNodeModel AddDelayNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        var node = _diagram.Nodes.Add(new DelayNodeModel(position, workflowNode));
+        node.OnEditRequested = () => _ = OpenDelayEditDialog(node);
+        return node;
+    }
+
+    private async Task OpenDelayEditDialog(DelayNodeModel node)
+    {
+        var parameters = new DialogParameters<EditDelayNodeDialog> { { x => x.Node, node } };
+        var dialogRef = await DialogService.ShowAsync<EditDelayNodeDialog>("Configurar espera", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled) return;
+
+        if (result.Data is (string title, int delayMs))
+        {
+            node.WorkflowNode.Title = string.IsNullOrWhiteSpace(title) ? "Aguardar" : title;
+            node.Title = node.WorkflowNode.Title;
+            node.WorkflowNode.DelayMilliseconds = delayMs;
+            node.Refresh();
+        }
+    }    
 }

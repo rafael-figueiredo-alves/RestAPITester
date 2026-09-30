@@ -116,6 +116,12 @@ mostra o fluxo principal da aplicação, da tela inicial à análise dos resulta
    <img src="doc_images/TestesExecutionResult.png" alt="Resultado da execução dos testes" width="900">
 </p>
 
+### Teste de API com designer visual de fluxo (workflow)
+
+<p align="center">
+   <img src="doc_images/Workflow.png" alt="Teste de API com designer visual de fluxo (workflow)" width="900">
+</p>
+
 ## Limitações conhecidas
 
 - `multipart/form-data` suporta apenas campos de texto (`chave=valor` por linha) — sem upload de arquivo binário real.

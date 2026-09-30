@@ -31,6 +31,12 @@
                                 @nodeResult.ErrorMessage
                             </MudText>
                         }
+                        @if (nodeResult.ConditionResult.HasValue)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Ramo seguido: @(nodeResult.ConditionResult.Value ? "Sim" : "Não")
+                            </MudText>
+                        }                        
                     </div>
                 </div>
             </MudPaper>

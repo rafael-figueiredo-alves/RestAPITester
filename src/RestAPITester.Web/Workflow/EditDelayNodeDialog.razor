@@ -1,0 +1,27 @@
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Nome do nó" @bind-Value="_title" Class="mb-2" />
+        <MudNumericField T="int" Label="Duração (ms)" @bind-Value="_delayMs" Min="0" Class="mb-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Salvar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public DelayNodeModel Node { get; set; } = null!;
+
+    private string _title = string.Empty;
+    private int _delayMs;
+
+    protected override void OnInitialized()
+    {
+        _title = Node.WorkflowNode.Title;
+        _delayMs = Node.WorkflowNode.DelayMilliseconds;
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok((_title, _delayMs)));
+    private void Cancel() => MudDialog.Cancel();
+}

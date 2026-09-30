@@ -1,0 +1,21 @@
+@using Blazor.Diagrams.Components.Renderers
+
+<div class="workflow-node workflow-node--condition @(Node.IsExecuting ? "workflow-node--executing" : Node.ExecutionSucceeded ? "workflow-node--succeeded" : string.Empty)">
+    <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="MudBlazor.Size.Small" Class="mr-1" />
+    <div class="workflow-node__body">
+        <div class="workflow-node__title">@Node.Title</div>
+        <div class="workflow-node__subtitle">@Node.ConditionSummary</div>
+    </div>
+    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="MudBlazor.Size.Small"
+                   OnClick="@(() => Node.OnEditRequested?.Invoke())" />
+    <span class="workflow-node__branch-label workflow-node__branch-label--true">Sim</span>
+    <span class="workflow-node__branch-label workflow-node__branch-label--false">Não</span>
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer @key="port" Port="port" Class="default" />
+    }
+</div>
+
+@code {
+    [Parameter] public ConditionNodeModel Node { get; set; } = null!;
+}

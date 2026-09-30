@@ -151,3 +151,165 @@ html, body, #app {
     overflow-y: auto;
     padding: 16px;
 }
+
+.workflow-node {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background-color: var(--mud-palette-surface);
+    border: 2px solid var(--mud-palette-primary);
+    color: var(--mud-palette-text-primary);
+    min-width: 180px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.workflow-node .diagram-port {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    margin: -10px;
+    border: 1px solid var(--mud-palette-primary);
+    border-radius: 50%;
+    background-color: var(--mud-palette-surface);
+    cursor: pointer;
+}
+.workflow-node .diagram-port.left {
+    left: 0;
+    top: 50%;
+}
+.workflow-node .diagram-port.right {
+    right: 0;
+    top: 50%;
+}
+.workflow-node .diagram-port.top {
+    top: 0;
+    left: 50%;
+}
+.workflow-node .diagram-port.bottom {
+    bottom: 0;
+    left: 50%;
+}
+.workflow-node .diagram-port.top,
+.workflow-node .diagram-port.bottom {
+    opacity: 0;
+}
+.workflow-node:hover .diagram-port.top,
+.workflow-node:hover .diagram-port.bottom,
+.workflow-node .diagram-port.top.has-links,
+.workflow-node .diagram-port.bottom.has-links {
+    opacity: 1;
+}
+.workflow-node .diagram-port:hover,
+.workflow-node .diagram-port.has-links {
+    background-color: var(--mud-palette-primary);
+}
+.workflow-node__title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.workflow-node__subtitle {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+.diagram-link path {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 120ms ease-in-out;
+}
+
+.workflow-palette-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background-color: var(--mud-palette-surface);
+    border: 1px dashed var(--mud-palette-primary);
+    cursor: grab;
+    font-size: 0.85rem;
+}
+.workflow-palette-item:active {
+    cursor: grabbing;
+}
+
+.workflow-node--start {
+    border-color: #22C55E;
+}
+
+.workflow-node--executing {
+    border-color: var(--mud-palette-primary);
+    outline: 3px solid color-mix(in srgb, var(--mud-palette-primary) 28%, transparent);
+    outline-offset: 3px;
+    animation: workflow-node-pulse 1.2s ease-in-out infinite;
+}
+
+.workflow-node--succeeded {
+    border-color: #22C55E;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #22C55E 28%, transparent);
+}
+
+@keyframes workflow-node-pulse {
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--mud-palette-primary) 18%, transparent);
+    }
+}
+
+.mud-theme-dark .workflow-node {
+    border-color: #64748B;
+}
+
+.mud-theme-dark .workflow-node--start {
+    border-color: #4ADE80;
+}
+
+.mud-theme-dark .workflow-node .diagram-port {
+    border: 2px solid #94A3B8;
+    background-color: color-mix(in srgb, var(--mud-palette-surface) 82%, #CBD5E1);
+    box-shadow: 0 0 0 2px var(--mud-palette-surface);
+}
+
+.mud-theme-dark .workflow-node .diagram-port:hover,
+.mud-theme-dark .workflow-node .diagram-port.has-links {
+    border-color: #CBD5E1;
+    background-color: #64748B;
+}
+
+.mud-theme-dark .workflow-node--executing {
+    border-color: #93C5FD;
+}
+
+.mud-theme-dark .workflow-node--succeeded {
+    border-color: #4ADE80;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #4ADE80 32%, transparent);
+}
+
+.workflow-node--condition {
+    border-color: #F59E0B;
+}
+.workflow-node__branch-label {
+    position: absolute;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 10px;
+    color: white;
+    pointer-events: none;
+    white-space: nowrap;
+}
+.workflow-node__branch-label--true {
+    right: -42px;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: #22C55E;
+}
+.workflow-node__branch-label--false {
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #EF4444;
+}
+
+.workflow-node--delay { border-color: #6366F1; }
+.mud-theme-dark .workflow-node--delay { border-color: #818CF8; }

@@ -284,3 +284,32 @@ html, body, #app {
     border-color: #4ADE80;
     box-shadow: 0 0 0 3px color-mix(in srgb, #4ADE80 32%, transparent);
 }
+
+.workflow-node--condition {
+    border-color: #F59E0B;
+}
+.workflow-node__branch-label {
+    position: absolute;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 10px;
+    color: white;
+    pointer-events: none;
+    white-space: nowrap;
+}
+.workflow-node__branch-label--true {
+    right: -42px;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: #22C55E;
+}
+.workflow-node__branch-label--false {
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #EF4444;
+}
+
+.workflow-node--delay { border-color: #6366F1; }
+.mud-theme-dark .workflow-node--delay { border-color: #818CF8; }

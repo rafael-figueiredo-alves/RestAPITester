@@ -1,0 +1,31 @@
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Nome do nó" @bind-Value="_title" Class="mb-2" />
+        <MudTextField T="string" Label="JSONPath (ex: $.status)" @bind-Value="_jsonPath" Class="mb-2" />
+        <MudTextField T="string" Label="Valor esperado" @bind-Value="_expectedValue" Class="mb-2"
+                      HelperText="Se o valor lido no JSONPath acima for igual a este, segue pelo ramo 'Sim'." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Salvar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public ConditionNodeModel Node { get; set; } = null!;
+
+    private string _title = string.Empty;
+    private string _jsonPath = string.Empty;
+    private string _expectedValue = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _title = Node.WorkflowNode.Title;
+        _jsonPath = Node.WorkflowNode.ConditionJsonPath ?? string.Empty;
+        _expectedValue = Node.WorkflowNode.ConditionExpectedValue ?? string.Empty;
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok((_title, _jsonPath, _expectedValue)));
+    private void Cancel() => MudDialog.Cancel();
+}

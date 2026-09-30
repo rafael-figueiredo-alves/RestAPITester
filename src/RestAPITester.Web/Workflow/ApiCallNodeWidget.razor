@@ -1,6 +1,6 @@
 @using Blazor.Diagrams.Components.Renderers
 
-<div class="workflow-node workflow-node--api-call @(Node.IsExecuting ? "workflow-node--executing" : Node.ExecutionSucceeded ? "workflow-node--succeeded" : string.Empty)">
+<div class="workflow-node workflow-node--api-call">
     <MudIcon Icon="@Icons.Material.Filled.Http" Size="MudBlazor.Size.Small" Class="mr-1" />
     <div class="workflow-node__body">
         <div class="workflow-node__title">@Node.Title</div>

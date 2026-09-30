@@ -9,4 +9,6 @@ public class WorkflowNodeExecutionResult
     public string? ErrorMessage { get; set; }
     public ExecutionResult? ApiCallResult { get; set; } // preenchido só pra nós ApiCall
     public long DurationMs { get; set; }
+
+    public bool? ConditionResult { get; set; }
 }
