@@ -5,6 +5,8 @@ namespace RestAPITester.Core.Execution;
 
 public class WorkflowRunner
 {
+    private const int MaxTotalSteps = 500;
+
     private readonly TestExecutor _executor;
 
     public WorkflowRunner(TestExecutor executor)
@@ -26,6 +28,7 @@ public class WorkflowRunner
         };
 
         var sessionVariables = new Dictionary<string, string>();
+        var loopIterationCounts = new Dictionary<Guid, int>();
         var currentNode = workflow.Nodes.FirstOrDefault(n => n.Type == WorkflowNodeType.Start);
 
         if (currentNode is null)
@@ -39,11 +42,12 @@ public class WorkflowRunner
             return result;
         }
 
-        var visited = new HashSet<Guid>();
+        var totalSteps = 0;
 
         while (currentNode is not null)
         {
-            if (!visited.Add(currentNode.Id))
+            totalSteps++;
+            if (totalSteps > MaxTotalSteps)
             {
                 result.NodeResults.Add(new WorkflowNodeExecutionResult
                 {
@@ -51,7 +55,7 @@ public class WorkflowRunner
                     NodeTitle = currentNode.Title,
                     NodeType = currentNode.Type,
                     Success = false,
-                    ErrorMessage = "Loop detectado no fluxo — execução interrompida."
+                    ErrorMessage = $"Limite de {MaxTotalSteps} passos excedido — possível loop sem controle de saída."
                 });
                 break;
             }
@@ -62,7 +66,7 @@ public class WorkflowRunner
             var lastApiResult = result.NodeResults.LastOrDefault(r => r.ApiCallResult is not null)?.ApiCallResult;
 
             var nodeResult = await ExecuteNodeAsync(
-                currentNode, workflow, endpoints, sessionVariables, lastApiResult, proxyBaseUrl, cancellationToken);
+                currentNode, workflow, endpoints, sessionVariables, lastApiResult, loopIterationCounts, proxyBaseUrl, cancellationToken);
             result.NodeResults.Add(nodeResult);
 
             if (!nodeResult.Success)
@@ -76,9 +80,8 @@ public class WorkflowRunner
     }
 
     /// <summary>
-    /// Decide qual nó vem a seguir. Para nós de Condition, segue a conexão cujo
-    /// Label bate com o ramo avaliado ("Sim"/"Não"); para os demais, segue a
-    /// única conexão de saída (sem Label).
+    /// Decide qual nó vem a seguir. Condition e Loop usam o mesmo mecanismo de
+    /// ramificação por Label — a diferença é só o par de rótulos usado.
     /// </summary>
     private static WorkflowNode? GetNextNode(WorkflowNode currentNode, WorkflowNodeExecutionResult currentResult, WorkflowDefinition workflow)
     {
@@ -87,6 +90,13 @@ public class WorkflowRunner
         if (currentNode.Type == WorkflowNodeType.Condition && currentResult.ConditionResult.HasValue)
         {
             var branchLabel = currentResult.ConditionResult.Value ? "Sim" : "Não";
+            var branchConnection = outgoing.FirstOrDefault(c => string.Equals(c.Label, branchLabel, StringComparison.OrdinalIgnoreCase));
+            return branchConnection is null ? null : workflow.Nodes.FirstOrDefault(n => n.Id == branchConnection.TargetNodeId);
+        }
+
+        if (currentNode.Type == WorkflowNodeType.Loop && currentResult.ConditionResult.HasValue)
+        {
+            var branchLabel = currentResult.ConditionResult.Value ? "Corpo" : "Fim";
             var branchConnection = outgoing.FirstOrDefault(c => string.Equals(c.Label, branchLabel, StringComparison.OrdinalIgnoreCase));
             return branchConnection is null ? null : workflow.Nodes.FirstOrDefault(n => n.Id == branchConnection.TargetNodeId);
         }
@@ -101,6 +111,7 @@ public class WorkflowRunner
         IReadOnlyList<EndpointInfo> endpoints,
         Dictionary<string, string> sessionVariables,
         ExecutionResult? lastApiResult,
+        Dictionary<Guid, int> loopIterationCounts,
         string? proxyBaseUrl,
         CancellationToken cancellationToken)
     {
@@ -116,6 +127,26 @@ public class WorkflowRunner
                 await Task.Delay(node.DelayMilliseconds, cancellationToken);
                 stopwatch.Stop();
                 return Ok(node, stopwatch);
+
+            case WorkflowNodeType.Loop:
+            {
+                loopIterationCounts.TryGetValue(node.Id, out var currentCount);
+                currentCount++;
+                loopIterationCounts[node.Id] = currentCount;
+
+                var shouldContinue = currentCount <= node.LoopMaxIterations;
+
+                stopwatch.Stop();
+                return new WorkflowNodeExecutionResult
+                {
+                    NodeId = node.Id,
+                    NodeTitle = $"{node.Title} (iteração {currentCount}/{node.LoopMaxIterations})",
+                    NodeType = node.Type,
+                    Success = true,
+                    ConditionResult = shouldContinue, // true = segue pro "Corpo", false = segue pro "Fim"
+                    DurationMs = stopwatch.ElapsedMilliseconds
+                };
+            }
 
             case WorkflowNodeType.ApiCall:
             {

@@ -33,8 +33,10 @@
                         }
                         @if (nodeResult.ConditionResult.HasValue)
                         {
+                            var trueLabel = nodeResult.NodeType == WorkflowNodeType.Loop ? "Corpo" : "Sim";
+                            var falseLabel = nodeResult.NodeType == WorkflowNodeType.Loop ? "Fim" : "Não";
                             <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                Ramo seguido: @(nodeResult.ConditionResult.Value ? "Sim" : "Não")
+                                Ramo seguido: @(nodeResult.ConditionResult.Value ? trueLabel : falseLabel)
                             </MudText>
                         }                        
                     </div>

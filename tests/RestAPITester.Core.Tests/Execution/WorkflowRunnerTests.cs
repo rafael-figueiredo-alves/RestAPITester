@@ -83,4 +83,84 @@ public class WorkflowRunnerTests
         Assert.Contains(result.NodeResults, r => r.NodeId == trueNode.Id);
         Assert.DoesNotContain(result.NodeResults, r => r.NodeId == falseNode.Id);
     }    
+
+    [Fact]
+    public async Task RunAsync_ComLoop_RepeteCorpoExatamenteNVezes()
+    {
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início" };
+        var loop = new WorkflowNode { Type = WorkflowNodeType.Loop, Title = "Repetir", LoopMaxIterations = 3 };
+        var body = new WorkflowNode { Type = WorkflowNodeType.Delay, Title = "Corpo", DelayMilliseconds = 1 };
+        var after = new WorkflowNode { Type = WorkflowNodeType.Delay, Title = "Depois do loop", DelayMilliseconds = 1 };
+
+        var workflow = new WorkflowDefinition
+        {
+            Nodes = [start, loop, body, after],
+            Connections =
+            [
+                new WorkflowConnection { SourceNodeId = start.Id, TargetNodeId = loop.Id },
+                new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = body.Id, Label = "Corpo" },
+                new WorkflowConnection { SourceNodeId = body.Id, TargetNodeId = loop.Id }, // volta pro loop
+                new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = after.Id, Label = "Fim" }
+            ]
+        };
+
+        var runner = new WorkflowRunner(new TestExecutor(new HttpClient(new FakeHttpMessageHandler(
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)))));
+
+        var result = await runner.RunAsync(workflow, Array.Empty<EndpointInfo>());
+
+        Assert.True(result.AllPassed);
+        Assert.Equal(3, result.NodeResults.Count(r => r.NodeId == body.Id));
+        Assert.Equal(1, result.NodeResults.Count(r => r.NodeId == after.Id));
+    }
+
+    [Fact]
+    public async Task RunAsync_ComConditionDentroDoLoop_SaiAntesDasNVezes()
+    {
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início" };
+        var loop = new WorkflowNode { Type = WorkflowNodeType.Loop, Title = "Repetir", LoopMaxIterations = 5 };
+        var apiCall = new WorkflowNode
+        {
+            Type = WorkflowNodeType.ApiCall,
+            Title = "Chamada",
+            ApiCallTestCase = new TestCase { EndpointOperationId = "GetStatus" }
+        };
+        var condition = new WorkflowNode
+        {
+            Type = WorkflowNodeType.Condition,
+            Title = "Pronto?",
+            ConditionJsonPath = "$.status",
+            ConditionExpectedValue = "pronto"
+        };
+        var after = new WorkflowNode { Type = WorkflowNodeType.Delay, Title = "Depois do loop", DelayMilliseconds = 1 };
+
+        var workflow = new WorkflowDefinition
+        {
+            BaseUrl = "https://api.teste.com",
+            Nodes = [start, loop, apiCall, condition, after],
+            Connections =
+            [
+                new WorkflowConnection { SourceNodeId = start.Id, TargetNodeId = loop.Id },
+                new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = apiCall.Id, Label = "Corpo" },
+                new WorkflowConnection { SourceNodeId = apiCall.Id, TargetNodeId = condition.Id },
+                new WorkflowConnection { SourceNodeId = condition.Id, TargetNodeId = after.Id, Label = "Sim" }, // "break"
+                new WorkflowConnection { SourceNodeId = condition.Id, TargetNodeId = loop.Id, Label = "Não" }, // continua o loop
+                new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = after.Id, Label = "Fim" }
+            ]
+        };
+
+        // Responde "pronto" sempre — então a condição já é satisfeita na 1ª volta.
+        var endpoint = new EndpointInfo { OperationId = "GetStatus", Path = "/status", Method = HttpMethodType.Get };
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"status\":\"pronto\"}")
+        });
+
+        var runner = new WorkflowRunner(new TestExecutor(new HttpClient(handler)));
+        var result = await runner.RunAsync(workflow, new[] { endpoint });
+
+        Assert.True(result.AllPassed);
+        Assert.Equal(1, result.NodeResults.Count(r => r.NodeId == apiCall.Id)); // só rodou 1 vez, não 5
+        Assert.Equal(1, result.NodeResults.Count(r => r.NodeId == after.Id));
+    }    
 }

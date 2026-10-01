@@ -5,7 +5,8 @@ public enum WorkflowNodeType
     Start,
     ApiCall,
     Delay,
-    Condition
+    Condition,
+    Loop
 }
 
 /// <summary>
@@ -34,4 +35,7 @@ public class WorkflowNode
 
     /// <summary>De qual spec salva veio o endpoint escolhido neste nó (Type == ApiCall).</summary>
     public Guid ApiCallSpecId { get; set; }
+
+    /// <summary>Quantas vezes o corpo do loop roda, no máximo (Type == Loop).</summary>
+    public int LoopMaxIterations { get; set; } = 5;
 }

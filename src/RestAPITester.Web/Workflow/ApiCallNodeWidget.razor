@@ -4,7 +4,15 @@
     <MudIcon Icon="@Icons.Material.Filled.Http" Size="MudBlazor.Size.Small" Class="mr-1" />
     <div class="workflow-node__body">
         <div class="workflow-node__title">@Node.Title</div>
-        <div class="workflow-node__subtitle">@Node.EndpointLabel</div>
+        <div class="workflow-node__subtitle">
+            @if (Node.EndpointMethod is HttpMethodType method)
+            {
+                <MudChip T="string" Color="@MethodColor(method)" Size="Size.Small" Class="mr-1">
+                    @method.ToString().ToUpperInvariant()
+                </MudChip>
+            }
+            @Node.EndpointLabel
+        </div>
     </div>
     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="MudBlazor.Size.Small"
                    OnClick="@(() => Node.OnEditRequested?.Invoke())" />
@@ -16,4 +24,14 @@
 
 @code {
     [Parameter] public ApiCallNodeModel Node { get; set; } = null!;
+
+    private static Color MethodColor(HttpMethodType method) => method switch
+    {
+        HttpMethodType.Get => Color.Info,
+        HttpMethodType.Post => Color.Success,
+        HttpMethodType.Put => Color.Warning,
+        HttpMethodType.Patch => Color.Warning,
+        HttpMethodType.Delete => Color.Error,
+        _ => Color.Default
+    };
 }

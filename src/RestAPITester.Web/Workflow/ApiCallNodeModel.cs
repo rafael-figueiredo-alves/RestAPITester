@@ -25,6 +25,15 @@ public class ApiCallNodeModel : NodeModel
 
     public WorkflowNode WorkflowNode { get; }
     public string EndpointLabel => WorkflowNode.ApiCallTestCase?.Name ?? "(nenhum endpoint selecionado)";
+    public HttpMethodType? EndpointMethod
+    {
+        get
+        {
+            var name = WorkflowNode.ApiCallTestCase?.Name;
+            var methodText = name?.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            return Enum.TryParse<HttpMethodType>(methodText, ignoreCase: true, out var method) ? method : null;
+        }
+    }
     public bool IsExecuting { get; set; }
     public bool ExecutionSucceeded { get; set; }
 

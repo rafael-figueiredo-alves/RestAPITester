@@ -1,5 +1,6 @@
 @using RestAPITester.Core.Models
 @using RestAPITester.Core.OpenApi
+@using RestAPITester.Core.DataGeneration
 
 <MudDialog>
     <DialogContent>
@@ -23,6 +24,56 @@
                 }
             </MudSelect>
         }
+
+        @if (_selectedEndpoint is not null)
+        {
+            @if (_selectedEndpoint.Parameters.Count > 0)
+            {
+                <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Parâmetros</MudText>
+                @foreach (var param in _selectedEndpoint.Parameters)
+                {
+                    <MudTextField T="string"
+                                  Label="@($"{param.Name} ({param.Location})")"
+                                  Value="@_paramValues.GetValueOrDefault(param.Name, string.Empty)"
+                                  ValueChanged="@(v => _paramValues[param.Name] = v)"
+                                  Required="@param.Required"
+                                  Margin="Margin.Dense"
+                                  Class="mb-2" />
+                }
+            }
+
+            @if (_selectedEndpoint.RequestBody is not null)
+            {
+                var isJsonBody = _selectedEndpoint.RequestBody.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
+                <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Corpo da requisição</MudText>
+                <MudTextField @bind-Value="_requestBodyJson" Lines="6" Variant="Variant.Outlined"
+                              HelperText="@(isJsonBody ? null : "Um campo por linha, no formato chave=valor")" />
+                @if (isJsonBody)
+                {
+                    <MudButton Variant="Variant.Text" Size="Size.Small" Class="mt-1" OnClick="GenerateFakeBody">
+                        Gerar dados fictícios
+                    </MudButton>
+                }
+            }
+
+            <MudTextField @bind-Value="_extraHeadersText"
+                          Label="Headers extras (um por linha: Nome: Valor — use {{variavel}})"
+                          Lines="2" Variant="Variant.Outlined" Class="mt-3" />
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Capturar variáveis desta resposta</MudText>
+            @foreach (var capture in _captures)
+            {
+                <div class="d-flex align-center mb-1 flex-wrap" style="gap: 8px;">
+                    <MudTextField T="string" @bind-Value="capture.VariableName" Label="Nome da variável" Margin="Margin.Dense" />
+                    <MudTextField T="string" @bind-Value="capture.SourceHeaderName" Label="Header (opcional, ex: ETag)" Margin="Margin.Dense" />
+                    <MudTextField T="string" @bind-Value="capture.JsonPath" Label="JSONPath (se não usar header)" Margin="Margin.Dense" Class="flex-grow-1" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => _captures.Remove(capture))" />
+                </div>
+            }
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _captures.Add(new VariableCapture()))">
+                + Capturar variável
+            </MudButton>
+        }
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel">Cancelar</MudButton>
@@ -37,67 +88,133 @@
 
     private Guid _specId;
     private List<EndpointInfo> _endpoints = new();
+    private EndpointInfo? _selectedEndpoint;
     private string? _operationId;
     private string _nodeTitle = string.Empty;
     private string? _suggestedTitle;
 
+    private readonly Dictionary<string, string> _paramValues = new();
+    private string? _requestBodyJson;
+    private string _extraHeadersText = string.Empty;
+    private readonly List<VariableCapture> _captures = new();
+    private readonly SchemaFakeDataGenerator _dataGenerator = new();
+
     protected override void OnInitialized()
     {
+        var testCase = Node.WorkflowNode.ApiCallTestCase;
+
         _nodeTitle = Node.WorkflowNode.Title;
-        _operationId = Node.WorkflowNode.ApiCallTestCase?.EndpointOperationId;
-        _suggestedTitle = Node.WorkflowNode.ApiCallTestCase?.Name;
+        _operationId = testCase?.EndpointOperationId;
+        _suggestedTitle = testCase?.Name;
+        _specId = Node.WorkflowNode.ApiCallSpecId;
+
+        if (testCase is not null)
+        {
+            foreach (var (key, value) in testCase.ParameterValues)
+                _paramValues[key] = value?.ToString() ?? string.Empty;
+
+            _requestBodyJson = testCase.RequestBodyJson;
+
+            if (testCase.ExtraHeaders.Count > 0)
+                _extraHeadersText = string.Join('\n', testCase.ExtraHeaders.Select(h => $"{h.Key}: {h.Value}"));
+
+            foreach (var capture in testCase.CapturedVariables)
+            {
+                _captures.Add(new VariableCapture
+                {
+                    VariableName = capture.VariableName,
+                    JsonPath = capture.JsonPath,
+                    SourceHeaderName = capture.SourceHeaderName
+                });
+            }
+        }
 
         if (_nodeTitle == "Chamada de API" && !string.IsNullOrWhiteSpace(_suggestedTitle))
             _nodeTitle = _suggestedTitle;
 
-        _specId = Node.WorkflowNode.ApiCallSpecId;
-        LoadEndpoints(_specId);
+        LoadEndpoints(_specId, keepSelection: true);
     }
 
     private void OnSpecChanged(Guid specId)
     {
         _specId = specId;
-        LoadEndpoints(specId);
+        LoadEndpoints(specId, keepSelection: false);
     }
 
-    private void LoadEndpoints(Guid specId)
+    private void LoadEndpoints(Guid specId, bool keepSelection)
     {
         var spec = SavedSpecs.FirstOrDefault(s => s.Id == specId);
         if (spec is null)
         {
             _endpoints = new();
+            _selectedEndpoint = null;
             return;
         }
 
         var parser = new OpenApiParser();
         _endpoints = parser.Parse(spec.RawJson).Endpoints;
+
+        if (keepSelection && _operationId is not null)
+            _selectedEndpoint = _endpoints.FirstOrDefault(e => e.OperationId == _operationId);
     }
 
     private void OnEndpointChanged(string? operationId)
     {
         _operationId = operationId;
-        var endpoint = _endpoints.FirstOrDefault(e => e.OperationId == operationId);
-        if (endpoint is null) return;
+        _selectedEndpoint = _endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        if (_selectedEndpoint is null) return;
 
         var shouldUpdateTitle = string.IsNullOrWhiteSpace(_nodeTitle)
             || _nodeTitle == "Chamada de API"
             || _nodeTitle == _suggestedTitle;
-        _suggestedTitle = $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}";
+        _suggestedTitle = $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}";
 
         if (shouldUpdateTitle)
             _nodeTitle = _suggestedTitle;
     }
 
+    private void GenerateFakeBody()
+    {
+        if (_selectedEndpoint?.RequestBody?.SchemaJson is null) return;
+        _requestBodyJson = _dataGenerator.GenerateJson(_selectedEndpoint.RequestBody.SchemaJson);
+    }
+
+    private Dictionary<string, string> ParseExtraHeaders()
+    {
+        var result = new Dictionary<string, string>();
+        foreach (var line in _extraHeadersText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split(':', 2);
+            if (parts.Length == 2)
+                result[parts[0].Trim()] = parts[1].Trim();
+        }
+        return result;
+    }
+
     private void Save()
     {
-        var endpoint = _endpoints.FirstOrDefault(e => e.OperationId == _operationId);
-        if (endpoint is null) return;
+        if (_selectedEndpoint is null) return;
 
         var nodeTitle = string.IsNullOrWhiteSpace(_nodeTitle)
-            ? $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}"
+            ? $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}"
             : _nodeTitle.Trim();
 
-        MudDialog.Close(DialogResult.Ok((endpoint, _specId, nodeTitle)));
+        Node.WorkflowNode.Title = nodeTitle;
+        Node.Title = nodeTitle;
+        Node.WorkflowNode.ApiCallSpecId = _specId;
+        Node.WorkflowNode.ApiCallTestCase = new TestCase
+        {
+            Name = $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}",
+            EndpointOperationId = _selectedEndpoint.OperationId,
+            ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+            RequestBodyJson = _requestBodyJson,
+            ExtraHeaders = ParseExtraHeaders(),
+            CapturedVariables = _captures
+                .Where(c => !string.IsNullOrWhiteSpace(c.VariableName))
+                .ToList()
+        };
+
+        MudDialog.Close(DialogResult.Ok(true));
     }
 
     private void Cancel() => MudDialog.Cancel();
