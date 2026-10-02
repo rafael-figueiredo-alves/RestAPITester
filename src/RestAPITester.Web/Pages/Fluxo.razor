@@ -12,6 +12,7 @@
 @using RestAPITester.Core.Persistence
 @using RestAPITester.Storage.FileExport
 
+@inject IWorkflowExecutionHistoryRepository WorkflowHistoryRepository
 @inject NavigationManager Navigation
 @inject HttpClient Http
 @inject IJSRuntime JS
@@ -71,7 +72,13 @@
                     @ondragstart="@(() => _draggedNodeType = "loop")">
                     <MudIcon Icon="@Icons.Material.Filled.Loop" Size="MudBlazor.Size.Small" Class="mr-1" />
                     Repetir
-                </div>                                              
+                </div>
+                <div class="workflow-palette-item mt-2"
+                    draggable="true"
+                    @ondragstart="@(() => _draggedNodeType = "set-variable")">
+                    <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="MudBlazor.Size.Small" Class="mr-1" />
+                    Definir variável
+                </div>                                                              
             </MudPaper>            
         </MudItem>
 
@@ -98,6 +105,41 @@
                 <MudTextField T="string" @bind-Value="_proxyUrl" Label="URL do proxy" />
             }
         </div>
+
+        @if (_liveVariables.Count > 0)
+        {
+            <MudPaper Class="pa-2 mb-2" Outlined="true">
+                <MudText Typo="Typo.caption" Class="d-block mb-1">Variáveis da execução</MudText>
+                @foreach (var kv in _liveVariables)
+                {
+                    <MudChip T="string" Size="MudBlazor.Size.Small" Class="mb-1 mr-1">@kv.Key = @kv.Value</MudChip>
+                }
+            </MudPaper>
+        }
+
+        <div class="mb-2">
+            <MudButton Variant="Variant.Text" OnClick="ToggleHistory" Disabled="_currentWorkflowId is null">
+                @(_showHistory ? "Ocultar histórico" : "Ver histórico")
+            </MudButton>
+        </div>
+
+        @if (_showHistory)
+        {
+            @if (_history.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mt-2">Nenhuma execução registrada ainda (salve o fluxo e execute pelo menos uma vez).</MudText>
+            }
+            else
+            {
+                @foreach (var entry in _history)
+                {
+                    <MudAlert Severity="@(entry.AllPassed ? Severity.Success : Severity.Error)" Dense="true" Class="mb-1 mt-2">
+                        @entry.StartedAt.ToLocalTime() — @(entry.AllPassed ? "Tudo passou" : "Alguma falha")
+                        — @entry.NodeResults.Count(r => r.Success)/@entry.NodeResults.Count etapa(s) ok
+                    </MudAlert>
+                }
+            }
+        }        
 
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" OnClick="RunWorkflow" Disabled="_running">
             Executar fluxo
@@ -139,6 +181,11 @@
     private int _executionStepNumber;
     private string _activeNodeTitle = string.Empty;
 
+    private readonly Dictionary<string, string> _liveVariables = new();
+    private List<WorkflowValidationIssue> _validationIssues = new();
+    private List<WorkflowExecutionResult> _history = new();
+    private bool _showHistory;    
+
     protected override async Task OnInitializedAsync()
     {
         _proxyUrl = Navigation.BaseUri.TrimEnd('/');
@@ -178,6 +225,7 @@
         _diagram.RegisterComponent<ConditionNodeModel, ConditionNodeWidget>();
         _diagram.RegisterComponent<DelayNodeModel, DelayNodeWidget>();
         _diagram.RegisterComponent<LoopNodeModel, LoopNodeWidget>();
+        _diagram.RegisterComponent<SetVariableNodeModel, SetVariableNodeWidget>();
 
         AddStartNode(new Point(80, 100));
     }
@@ -247,6 +295,10 @@
         {
             AddLoopNode(new Point(x, y));
         }  
+        else if (_draggedNodeType == "set-variable")
+        {
+            AddSetVariableNode(new Point(x, y));
+        }        
 
         _draggedNodeType = null;
     }
@@ -324,6 +376,7 @@
                 WorkflowNodeType.Condition => AddConditionNode(position, workflowNode),
                 WorkflowNodeType.Delay => AddDelayNode(position, workflowNode),
                 WorkflowNodeType.Loop => AddLoopNode(position, workflowNode),
+                WorkflowNodeType.SetVariable => AddSetVariableNode(position, workflowNode),
                 _ => AddStartNode(position, workflowNode)
             };
 
@@ -418,16 +471,34 @@
 
     private async Task RunWorkflow()
     {
+        var workflow = BuildWorkflowDefinition();
+        workflow.BaseUrl = _baseUrl;
+
+        _validationIssues = new WorkflowValidator().Validate(workflow);
+        var hasErrors = _validationIssues.Any(i => i.Severity == ValidationSeverity.Error);
+
+        if (_validationIssues.Count > 0)
+        {
+            var parameters = new DialogParameters<WorkflowValidationDialog>
+            {
+                { x => x.Issues, _validationIssues },
+                { x => x.HasErrors, hasErrors }
+            };
+            var dialogRef = await DialogService.ShowAsync<WorkflowValidationDialog>("Verificação do fluxo", parameters);
+            var validationResult = await dialogRef.Result;
+
+            if (hasErrors || validationResult is null || validationResult.Canceled)
+                return; // bloqueia execução se tiver erro, ou se o usuário cancelar
+        }
+
         ClearExecutionHighlights();
+        _liveVariables.Clear();
         _running = true;
         _runError = null;
         _lastResult = null;
 
         try
         {
-            var workflow = BuildWorkflowDefinition();
-            workflow.BaseUrl = _baseUrl;
-
             var specIds = workflow.Nodes
                 .Where(n => n.Type == WorkflowNodeType.ApiCall && n.ApiCallSpecId != Guid.Empty)
                 .Select(n => n.ApiCallSpecId)
@@ -449,8 +520,8 @@
                 workflow,
                 allEndpoints,
                 _useProxy ? _proxyUrl : null,
-                onNodeStarting: OnWorkflowNodeStarting);
-
+                onNodeStarting: OnWorkflowNodeStarting,
+                onVariablesChanged: OnWorkflowVariablesChanged);
         }
         catch (Exception ex)
         {
@@ -464,7 +535,9 @@
 
         if (_lastResult is not null)
         {
-            SetSuccessfulNodes(_lastResult.NodeResults.Where(result => result.Success).Select(result => result.NodeId));
+            await WorkflowHistoryRepository.SaveAsync(_lastResult);
+
+            SetSuccessfulNodes(_lastResult.NodeResults.Where(r => r.Success).Select(r => r.NodeId));
             await InvokeAsync(StateHasChanged);
 
             var parameters = new DialogParameters<WorkflowExecutionResultDialog>
@@ -484,6 +557,22 @@
             }
         }
     }
+
+    private async Task OnWorkflowVariablesChanged(IReadOnlyDictionary<string, string> variables)
+    {
+        _liveVariables.Clear();
+        foreach (var (key, value) in variables)
+            _liveVariables[key] = value;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleHistory()
+    {
+        _showHistory = !_showHistory;
+        if (_showHistory && _currentWorkflowId is Guid id)
+            _history = await WorkflowHistoryRepository.GetByWorkflowAsync(id);
+    }    
 
     private async Task OnWorkflowNodeStarting(Guid nodeId)
     {
@@ -532,7 +621,17 @@
                         loopNode.Refresh();
                     }
                     break;
-                }                  
+                }   
+                case SetVariableNodeModel setVarNode:
+                {
+                    var isExecuting = setVarNode.WorkflowNode.Id == nodeId;
+                    if (setVarNode.IsExecuting != isExecuting)
+                    {
+                        setVarNode.IsExecuting = isExecuting;
+                        setVarNode.Refresh();
+                    }
+                    break;
+                }                 
                 case DelayNodeModel delayNode:
                 {
                     var isExecuting = delayNode.WorkflowNode.Id == nodeId;
@@ -594,7 +693,17 @@
                         loopNode.Refresh();
                     }
                     break;
-                }                
+                }   
+                case SetVariableNodeModel setVarNode:
+                {
+                    var succeeded = successfulIds.Contains(setVarNode.WorkflowNode.Id);
+                    if (setVarNode.ExecutionSucceeded != succeeded)
+                    {
+                        setVarNode.ExecutionSucceeded = succeeded;
+                        setVarNode.Refresh();
+                    }
+                    break;
+                }              
                 case DelayNodeModel delayNode:
                 {
                     var succeeded = successfulIds.Contains(delayNode.WorkflowNode.Id);
@@ -627,7 +736,11 @@
 
     private WorkflowDefinition BuildWorkflowDefinition()
     {
-        var workflow = new WorkflowDefinition { Name = _workflowName };
+        var workflow = new WorkflowDefinition
+        {
+            Id = _currentWorkflowId ?? Guid.NewGuid(),
+            Name = _workflowName
+        };
         var nodeIdMap = new Dictionary<NodeModel, Guid>();
 
         foreach (var node in _diagram.Nodes)
@@ -638,6 +751,7 @@
                 ConditionNodeModel conditionNode => conditionNode.WorkflowNode,
                 DelayNodeModel delayNode => delayNode.WorkflowNode,
                 LoopNodeModel loopNode => loopNode.WorkflowNode,
+                SetVariableNodeModel setVarNode => setVarNode.WorkflowNode,
                 StartNodeModel startNode => startNode.WorkflowNode,
                 _ => new WorkflowNode { Type = WorkflowNodeType.Start, Title = node.Title ?? "Nó" }
             };
@@ -687,6 +801,7 @@
         ConditionNodeModel conditionNode => conditionNode.WorkflowNode,
         DelayNodeModel delayNode => delayNode.WorkflowNode,
         LoopNodeModel loopNode => loopNode.WorkflowNode,
+        SetVariableNodeModel setVarNode => setVarNode.WorkflowNode,
         StartNodeModel startNode => startNode.WorkflowNode,
         _ => null
     };
@@ -767,6 +882,31 @@
             node.WorkflowNode.Title = string.IsNullOrWhiteSpace(title) ? "Repetir" : title;
             node.Title = node.WorkflowNode.Title;
             node.WorkflowNode.LoopMaxIterations = maxIterations;
+            node.Refresh();
+        }
+    }    
+
+    private SetVariableNodeModel AddSetVariableNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        var node = _diagram.Nodes.Add(new SetVariableNodeModel(position, workflowNode));
+        node.OnEditRequested = () => _ = OpenSetVariableEditDialog(node);
+        return node;
+    }
+
+    private async Task OpenSetVariableEditDialog(SetVariableNodeModel node)
+    {
+        var parameters = new DialogParameters<EditSetVariableNodeDialog> { { x => x.Node, node } };
+        var dialogRef = await DialogService.ShowAsync<EditSetVariableNodeDialog>("Definir variável", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled) return;
+
+        if (result.Data is (string title, string variableName, string variableValue))
+        {
+            node.WorkflowNode.Title = string.IsNullOrWhiteSpace(title) ? "Definir variável" : title;
+            node.Title = node.WorkflowNode.Title;
+            node.WorkflowNode.SetVariableName = variableName;
+            node.WorkflowNode.SetVariableValue = variableValue;
             node.Refresh();
         }
     }    

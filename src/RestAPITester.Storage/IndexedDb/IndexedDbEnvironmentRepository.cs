@@ -13,7 +13,7 @@ public class IndexedDbEnvironmentRepository : IEnvironmentRepository
         _factory = factory;
     }
 
-    private Task<RestApiTesterDb> GetDbAsync() => _factory.Create<RestApiTesterDb>("RestAPITesterDb", 4);
+    private Task<RestApiTesterDb> GetDbAsync() => _factory.Create<RestApiTesterDb>(DatabaseConsts.DbName, DatabaseConsts.DbVersion);
 
     public async Task SaveAsync(ApiEnvironment environment)
     {

@@ -290,6 +290,7 @@ html, body, #app {
 }
 .workflow-node__branch-label {
     position: absolute;
+    z-index: 1;
     font-size: 0.7rem;
     font-weight: 700;
     padding: 1px 8px;
@@ -299,13 +300,13 @@ html, body, #app {
     white-space: nowrap;
 }
 .workflow-node__branch-label--true {
-    right: -42px;
+    right: -50px;
     top: 50%;
     transform: translateY(-50%);
     background-color: #22C55E;
 }
 .workflow-node__branch-label--false {
-    bottom: -30px;
+    bottom: -34px;
     left: 50%;
     transform: translateX(-50%);
     background-color: #EF4444;
@@ -313,3 +314,21 @@ html, body, #app {
 
 .workflow-node--delay { border-color: #6366F1; }
 .mud-theme-dark .workflow-node--delay { border-color: #818CF8; }
+
+.workflow-node--loop { border-color: #8B5CF6; }
+.mud-theme-dark .workflow-node--loop { border-color: #A78BFA; }
+.workflow-node__branch-label--loop-body {
+    right: -54px;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: #8B5CF6;
+}
+.workflow-node__branch-label--loop-exit {
+    bottom: -32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #64748B;
+}
+
+.workflow-node--set-variable { border-color: #0EA5E9; }
+.mud-theme-dark .workflow-node--set-variable { border-color: #38BDF8; }

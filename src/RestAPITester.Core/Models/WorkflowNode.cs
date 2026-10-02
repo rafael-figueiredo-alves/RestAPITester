@@ -6,7 +6,8 @@ public enum WorkflowNodeType
     ApiCall,
     Delay,
     Condition,
-    Loop
+    Loop,
+    SetVariable
 }
 
 /// <summary>
@@ -38,4 +39,8 @@ public class WorkflowNode
 
     /// <summary>Quantas vezes o corpo do loop roda, no máximo (Type == Loop).</summary>
     public int LoopMaxIterations { get; set; } = 5;
+
+    /// <summary>Usados quando Type == SetVariable.</summary>
+    public string? SetVariableName { get; set; }
+    public string? SetVariableValue { get; set; }
 }

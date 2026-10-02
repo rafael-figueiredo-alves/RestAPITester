@@ -1,0 +1,30 @@
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Nome do nó" @bind-Value="_title" Class="mb-2" />
+        <MudTextField T="string" Label="Nome da variável" @bind-Value="_variableName" Class="mb-2" />
+        <MudTextField T="string" Label="Valor (pode usar {{outraVariavel}})" @bind-Value="_variableValue" Class="mb-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Salvar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public SetVariableNodeModel Node { get; set; } = null!;
+
+    private string _title = string.Empty;
+    private string _variableName = string.Empty;
+    private string _variableValue = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _title = Node.WorkflowNode.Title;
+        _variableName = Node.WorkflowNode.SetVariableName ?? string.Empty;
+        _variableValue = Node.WorkflowNode.SetVariableValue ?? string.Empty;
+    }
+
+    private void Save() => MudDialog.Close(DialogResult.Ok((_title, _variableName, _variableValue)));
+    private void Cancel() => MudDialog.Cancel();
+}

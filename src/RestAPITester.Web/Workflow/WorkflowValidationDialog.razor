@@ -1,0 +1,40 @@
+@using RestAPITester.Core.Models
+
+<MudDialog>
+    <DialogContent>
+        @if (HasErrors)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">
+                Há problemas que impedem a execução. Corrija antes de continuar.
+            </MudAlert>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3">
+                Alguns avisos foram encontrados — você pode continuar mesmo assim.
+            </MudAlert>
+        }
+
+        @foreach (var issue in Issues)
+        {
+            <MudAlert Severity="@(issue.Severity == ValidationSeverity.Error ? Severity.Error : Severity.Warning)" Dense="true" Class="mb-1">
+                @issue.Message
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Continue" Disabled="HasErrors">
+            Executar mesmo assim
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public List<WorkflowValidationIssue> Issues { get; set; } = new();
+    [Parameter] public bool HasErrors { get; set; }
+
+    private void Continue() => MudDialog.Close(DialogResult.Ok(true));
+    private void Cancel() => MudDialog.Cancel();
+}

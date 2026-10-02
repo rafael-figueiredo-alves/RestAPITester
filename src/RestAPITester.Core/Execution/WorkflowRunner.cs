@@ -19,7 +19,8 @@ public class WorkflowRunner
         IReadOnlyList<EndpointInfo> endpoints,
         string? proxyBaseUrl = null,
         CancellationToken cancellationToken = default,
-        Func<Guid, Task>? onNodeStarting = null)
+        Func<Guid, Task>? onNodeStarting = null,
+        Func<IReadOnlyDictionary<string, string>, Task>? onVariablesChanged = null)
     {
         var result = new WorkflowExecutionResult
         {
@@ -69,6 +70,9 @@ public class WorkflowRunner
                 currentNode, workflow, endpoints, sessionVariables, lastApiResult, loopIterationCounts, proxyBaseUrl, cancellationToken);
             result.NodeResults.Add(nodeResult);
 
+            if (onVariablesChanged is not null)
+                await onVariablesChanged(sessionVariables);
+
             if (!nodeResult.Success)
                 break;
 
@@ -79,10 +83,6 @@ public class WorkflowRunner
         return result;
     }
 
-    /// <summary>
-    /// Decide qual nó vem a seguir. Condition e Loop usam o mesmo mecanismo de
-    /// ramificação por Label — a diferença é só o par de rótulos usado.
-    /// </summary>
     private static WorkflowNode? GetNextNode(WorkflowNode currentNode, WorkflowNodeExecutionResult currentResult, WorkflowDefinition workflow)
     {
         var outgoing = workflow.Connections.Where(c => c.SourceNodeId == currentNode.Id).ToList();
@@ -128,6 +128,24 @@ public class WorkflowRunner
                 stopwatch.Stop();
                 return Ok(node, stopwatch);
 
+            case WorkflowNodeType.SetVariable:
+            {
+                if (string.IsNullOrWhiteSpace(node.SetVariableName))
+                {
+                    stopwatch.Stop();
+                    return Fail(node, stopwatch, "Nome da variável não configurado.");
+                }
+
+                var value = node.SetVariableValue ?? string.Empty;
+                foreach (var (key, varValue) in sessionVariables)
+                    value = value.Replace($"{{{{{key}}}}}", varValue);
+
+                sessionVariables[node.SetVariableName] = value;
+
+                stopwatch.Stop();
+                return Ok(node, stopwatch);
+            }
+
             case WorkflowNodeType.Loop:
             {
                 loopIterationCounts.TryGetValue(node.Id, out var currentCount);
@@ -143,7 +161,7 @@ public class WorkflowRunner
                     NodeTitle = $"{node.Title} (iteração {currentCount}/{node.LoopMaxIterations})",
                     NodeType = node.Type,
                     Success = true,
-                    ConditionResult = shouldContinue, // true = segue pro "Corpo", false = segue pro "Fim"
+                    ConditionResult = shouldContinue,
                     DurationMs = stopwatch.ElapsedMilliseconds
                 };
             }

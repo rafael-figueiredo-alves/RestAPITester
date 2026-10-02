@@ -7,4 +7,6 @@ public class WorkflowExecutionResult
     public DateTime StartedAt { get; set; }
     public DateTime FinishedAt { get; set; }
     public bool AllPassed => NodeResults.All(r => r.Success);
+
+    public Guid Id { get; set; } = Guid.NewGuid();
 }

@@ -14,4 +14,5 @@ public class RestApiTesterDb : IndexedDB.Blazor.IndexedDb
     public IndexedSet<ApiEnvironment> Environments { get; set; } = null!;
     public IndexedSet<TestSuiteExecutionResult> ExecutionHistory { get; set; } = null!;
     public IndexedSet<WorkflowDefinition> Workflows { get; set; } = null!;
+    public IndexedSet<WorkflowExecutionResult> WorkflowExecutionHistory { get; set; } = null!;
 }
