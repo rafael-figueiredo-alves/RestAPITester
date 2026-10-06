@@ -30,6 +30,7 @@
             <MudTextField T="string" @bind-Value="_workflowName" Label="Nome do fluxo" Margin="Margin.Dense" />
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveWorkflow">Salvar</MudButton>
             <MudButton Variant="Variant.Outlined" OnClick="NewWorkflow">Novo</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="DuplicateWorkflow">Duplicar</MudButton>            
             <MudSelect T="string" Label="Fluxos salvos" ValueChanged="OnLoadWorkflowSelected" Margin="Margin.Dense" Style="min-width:220px">
                 @foreach (var wf in _workflows)
                 {
@@ -84,14 +85,20 @@
 
         <MudItem xs="10">
             <MudPaper Class="pa-2" Elevation="2" Style="height: 55vh; overflow: hidden;">
+                <div class="d-flex justify-end mb-1">
+                    <MudIconButton Icon="@Icons.Material.Filled.FitScreen" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => _diagram.ZoomToFit())" Title="Ajustar à tela" />
+                </div>                
                 <div @ref="_canvasContainer"
-                     style="width: 100%; height: 100%;"
-                     @ondragover:preventDefault="true"
-                     @ondrop="OnDrop">
+                    tabindex="0"
+                    style="width: 100%; height: 100%; outline: none;"
+                    @ondragover:preventDefault="true"
+                    @ondrop="OnDrop"
+                    @onkeydown="OnCanvasKeyDown">
                     <CascadingValue Value="_diagram">
                         <DiagramCanvas />
                     </CascadingValue>
-                </div>
+                </div>                    
             </MudPaper>
         </MudItem>
     </MudGrid>
@@ -910,4 +917,93 @@
             node.Refresh();
         }
     }    
+
+    private void OnCanvasKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is not ("Delete" or "Backspace")) return;
+
+        var selectedLinks = _diagram.Links.Where(l => l.Selected).ToList();
+        foreach (var link in selectedLinks)
+            _diagram.Links.Remove(link);
+
+        var selectedNodes = _diagram.Nodes.Where(n => n.Selected).ToList();
+        foreach (var node in selectedNodes)
+            _diagram.Nodes.Remove(node);
+    }    
+
+    private async Task DuplicateWorkflow()
+    {
+        if (_currentWorkflowId is null)
+        {
+            Snackbar.Add("Salve o fluxo antes de duplicar.", Severity.Warning);
+            return;
+        }
+
+        var source = _workflows.FirstOrDefault(w => w.Id == _currentWorkflowId);
+        if (source is null) return;
+
+        var idMap = new Dictionary<Guid, Guid>();
+        var clonedNodes = source.Nodes.Select(n =>
+        {
+            var clone = CloneWorkflowNode(n);
+            idMap[n.Id] = clone.Id;
+            return clone;
+        }).ToList();
+
+        var clonedConnections = source.Connections
+            .Where(c => idMap.ContainsKey(c.SourceNodeId) && idMap.ContainsKey(c.TargetNodeId))
+            .Select(c => new WorkflowConnection
+            {
+                SourceNodeId = idMap[c.SourceNodeId],
+                TargetNodeId = idMap[c.TargetNodeId],
+                Label = c.Label
+            }).ToList();
+
+        var clone = new WorkflowDefinition
+        {
+            Name = $"{source.Name} (cópia)",
+            Description = source.Description,
+            SourceSpecId = source.SourceSpecId,
+            BaseUrl = source.BaseUrl,
+            Nodes = clonedNodes,
+            Connections = clonedConnections
+        };
+
+        await WorkflowRepository.SaveAsync(clone);
+        _workflows = await WorkflowRepository.GetAllAsync();
+        Snackbar.Add("Fluxo duplicado.", Severity.Success);
+    }
+
+    private static WorkflowNode CloneWorkflowNode(WorkflowNode source) => new()
+    {
+        Type = source.Type,
+        Title = source.Title,
+        PositionX = source.PositionX,
+        PositionY = source.PositionY,
+        ApiCallSpecId = source.ApiCallSpecId,
+        DelayMilliseconds = source.DelayMilliseconds,
+        ConditionJsonPath = source.ConditionJsonPath,
+        ConditionExpectedValue = source.ConditionExpectedValue,
+        LoopMaxIterations = source.LoopMaxIterations,
+        SetVariableName = source.SetVariableName,
+        SetVariableValue = source.SetVariableValue,
+        ApiCallTestCase = source.ApiCallTestCase is null ? null : new TestCase
+        {
+            Name = source.ApiCallTestCase.Name,
+            EndpointOperationId = source.ApiCallTestCase.EndpointOperationId,
+            ParameterValues = new Dictionary<string, object?>(source.ApiCallTestCase.ParameterValues),
+            RequestBodyJson = source.ApiCallTestCase.RequestBodyJson,
+            ExpectedStatusCode = source.ApiCallTestCase.ExpectedStatusCode,
+            FollowRedirects = source.ApiCallTestCase.FollowRedirects,
+            ExtraHeaders = new Dictionary<string, string>(source.ApiCallTestCase.ExtraHeaders),
+            Assertions = source.ApiCallTestCase.Assertions.Select(a => new TestAssertion
+            {
+                Type = a.Type, JsonPath = a.JsonPath, HeaderName = a.HeaderName, ExpectedValue = a.ExpectedValue
+            }).ToList(),
+            CapturedVariables = source.ApiCallTestCase.CapturedVariables.Select(c => new VariableCapture
+            {
+                VariableName = c.VariableName, JsonPath = c.JsonPath, SourceHeaderName = c.SourceHeaderName
+            }).ToList()
+        }
+    };    
 }

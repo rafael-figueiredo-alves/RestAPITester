@@ -33,7 +33,8 @@ public class TestSuiteRunner
 
         foreach (var testCase in suite.TestCases)
         {
-            var endpoint = endpoints.FirstOrDefault(e => e.OperationId == testCase.EndpointOperationId);
+            var endpoint = endpoints.FirstOrDefault(e => e.Key == testCase.EndpointOperationId)
+                          ?? endpoints.FirstOrDefault(e => e.OperationId == testCase.EndpointOperationId);
             if (endpoint is null)
             {
                 suiteResult.Results.Add(new ExecutionResult

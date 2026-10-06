@@ -174,7 +174,8 @@ public class WorkflowRunner
                     return Fail(node, stopwatch, "Nenhum endpoint configurado neste nó.");
                 }
 
-                var endpoint = endpoints.FirstOrDefault(e => e.OperationId == node.ApiCallTestCase.EndpointOperationId);
+                var endpoint = endpoints.FirstOrDefault(e => e.Key == node.ApiCallTestCase.EndpointOperationId)
+                              ?? endpoints.FirstOrDefault(e => e.OperationId == node.ApiCallTestCase.EndpointOperationId);
                 if (endpoint is null)
                 {
                     stopwatch.Stop();

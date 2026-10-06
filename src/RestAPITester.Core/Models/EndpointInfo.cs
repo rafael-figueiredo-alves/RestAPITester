@@ -15,4 +15,10 @@ public class EndpointInfo
     public RequestBodyInfo? RequestBody { get; set; }
     public List<ResponseInfo> Responses { get; set; } = new();
     public bool RequiresAuth { get; set; }
+
+    /// <summary>
+    /// Identificador único e estável do endpoint (Método + Path) — mais confiável
+    /// que o operationId da própria spec, que não é garantido ser único.
+    /// </summary>
+    public string Key => $"{Method.ToString().ToUpperInvariant()} {Path}";
 }

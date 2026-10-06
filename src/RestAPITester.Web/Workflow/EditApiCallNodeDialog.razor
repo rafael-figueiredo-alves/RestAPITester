@@ -15,14 +15,9 @@
 
         @if (_endpoints.Count > 0)
         {
-            <MudSelect T="string" Label="Endpoint" Value="_operationId" ValueChanged="OnEndpointChanged" Class="mb-2">
-                @foreach (var endpoint in _endpoints)
-                {
-                    <MudSelectItem T="string" Value="@endpoint.OperationId">
-                        @endpoint.Method.ToString().ToUpper() @endpoint.Path
-                    </MudSelectItem>
-                }
-            </MudSelect>
+            <MudAutocomplete T="string" Label="Endpoint (digite pra buscar)" Value="_operationId" ValueChanged="OnEndpointChanged"
+                            SearchFunc="SearchEndpoints" ToStringFunc="EndpointKeyToLabel"
+                            Clearable="true" ResetValueOnEmptyText="true" Class="mb-2" />
         }
 
         @if (_selectedEndpoint is not null)
@@ -155,13 +150,19 @@
         _endpoints = parser.Parse(spec.RawJson).Endpoints;
 
         if (keepSelection && _operationId is not null)
-            _selectedEndpoint = _endpoints.FirstOrDefault(e => e.OperationId == _operationId);
+        {
+            _selectedEndpoint = _endpoints.FirstOrDefault(e => e.Key == _operationId)
+                ?? _endpoints.FirstOrDefault(e => e.OperationId == _operationId);
+
+            if (_selectedEndpoint is not null)
+                _operationId = _selectedEndpoint.Key; // normaliza pro novo formato
+        }
     }
 
-    private void OnEndpointChanged(string? operationId)
+    private void OnEndpointChanged(string? key)
     {
-        _operationId = operationId;
-        _selectedEndpoint = _endpoints.FirstOrDefault(e => e.OperationId == operationId);
+        _operationId = key;
+        _selectedEndpoint = _endpoints.FirstOrDefault(e => e.Key == key);
         if (_selectedEndpoint is null) return;
 
         var shouldUpdateTitle = string.IsNullOrWhiteSpace(_nodeTitle)
@@ -171,6 +172,27 @@
 
         if (shouldUpdateTitle)
             _nodeTitle = _suggestedTitle;
+    }
+
+    private Task<IEnumerable<string>> SearchEndpoints(string value, CancellationToken token)
+    {
+        var query = _endpoints.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            query = query.Where(e =>
+                e.Path.Contains(value, StringComparison.OrdinalIgnoreCase) ||
+                e.Method.ToString().Contains(value, StringComparison.OrdinalIgnoreCase) ||
+                (e.Summary?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        return Task.FromResult(query.Select(e => e.Key));
+    }
+
+    private string EndpointKeyToLabel(string? key)
+    {
+        var endpoint = _endpoints.FirstOrDefault(e => e.Key == key);
+        return endpoint is null ? key ?? string.Empty : $"{endpoint.Method.ToString().ToUpper()} {endpoint.Path}";
     }
 
     private void GenerateFakeBody()
@@ -205,7 +227,7 @@
         Node.WorkflowNode.ApiCallTestCase = new TestCase
         {
             Name = $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}",
-            EndpointOperationId = _selectedEndpoint.OperationId,
+            EndpointOperationId = _selectedEndpoint.Key,
             ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
             RequestBodyJson = _requestBodyJson,
             ExtraHeaders = ParseExtraHeaders(),

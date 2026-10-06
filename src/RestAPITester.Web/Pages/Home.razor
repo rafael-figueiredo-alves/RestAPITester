@@ -546,8 +546,8 @@
         {
             var testCase = new TestCase
             {
-                EndpointOperationId = _selectedEndpoint.OperationId,
-                RequestBodyJson = _requestBodyJson,
+                
+                RequestBodyJson = _requestBodyJson,EndpointOperationId = _selectedEndpoint.Key,
                 ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
                 ExtraHeaders = ParseExtraHeaders(),
                 FollowRedirects = _followRedirects
@@ -652,7 +652,7 @@
         var testCase = new TestCase
         {
             Name = $"{_selectedEndpoint.Method.ToString().ToUpper()} {_selectedEndpoint.Path}",
-            EndpointOperationId = _selectedEndpoint.OperationId,
+            EndpointOperationId = _selectedEndpoint.Key,
             ParameterValues = _paramValues.ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
             RequestBodyJson = _requestBodyJson,
             ExtraHeaders = ParseExtraHeaders(),
