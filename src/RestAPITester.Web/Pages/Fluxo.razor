@@ -12,6 +12,7 @@
 @using RestAPITester.Core.Persistence
 @using RestAPITester.Storage.FileExport
 
+@inject ITestSuiteRepository TestSuiteRepository
 @inject IWorkflowExecutionHistoryRepository WorkflowHistoryRepository
 @inject NavigationManager Navigation
 @inject HttpClient Http
@@ -31,6 +32,8 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveWorkflow">Salvar</MudButton>
             <MudButton Variant="Variant.Outlined" OnClick="NewWorkflow">Novo</MudButton>
             <MudButton Variant="Variant.Outlined" OnClick="DuplicateWorkflow">Duplicar</MudButton>            
+            <MudButton Variant="Variant.Outlined" OnClick="OpenTemplateDialog">Modelo</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="ImportFromSuite">Importar de Suíte</MudButton>            
             <MudSelect T="string" Label="Fluxos salvos" ValueChanged="OnLoadWorkflowSelected" Margin="Margin.Dense" Style="min-width:220px">
                 @foreach (var wf in _workflows)
                 {
@@ -79,7 +82,13 @@
                     @ondragstart="@(() => _draggedNodeType = "set-variable")">
                     <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="MudBlazor.Size.Small" Class="mr-1" />
                     Definir variável
-                </div>                                                              
+                </div>  
+                <div class="workflow-palette-item mt-2"
+                    draggable="true"
+                    @ondragstart="@(() => _draggedNodeType = "note")">
+                    <MudIcon Icon="@Icons.Material.Filled.StickyNote2" Size="MudBlazor.Size.Small" Class="mr-1" />
+                    Anotação
+                </div>                                                                            
             </MudPaper>            
         </MudItem>
 
@@ -87,7 +96,17 @@
             <MudPaper Class="pa-2" Elevation="2" Style="height: 55vh; overflow: hidden;">
                 <div class="d-flex justify-end mb-1">
                     <MudIconButton Icon="@Icons.Material.Filled.FitScreen" Size="MudBlazor.Size.Small"
-                                OnClick="@(() => _diagram.ZoomToFit())" Title="Ajustar à tela" />
+                                OnClick="@(() => _diagram.ZoomToFit())" title="Ajustar à tela" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ZoomIn" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => _diagram.SetZoom(_diagram.Zoom * 1.2))" title="Mais Zoom" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ZoomOut" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => _diagram.SetZoom(_diagram.Zoom / 1.2))" title="Menos Zoom" />
+                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => RunWorkflow())" title="Executar fluxo" />            
+                    <MudIconButton Icon="@Icons.Material.Filled.Undo" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => Undo())" title="Desfazer" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Redo" Size="MudBlazor.Size.Small"
+                                OnClick="@(() => Redo())" title="Refazer" />                                                                                    
                 </div>                
                 <div @ref="_canvasContainer"
                     tabindex="0"
@@ -233,6 +252,7 @@
         _diagram.RegisterComponent<DelayNodeModel, DelayNodeWidget>();
         _diagram.RegisterComponent<LoopNodeModel, LoopNodeWidget>();
         _diagram.RegisterComponent<SetVariableNodeModel, SetVariableNodeWidget>();
+        _diagram.RegisterComponent<NoteNodeModel, NoteNodeWidget>();
 
         AddStartNode(new Point(80, 100));
     }
@@ -246,6 +266,7 @@
 
     private ApiCallNodeModel AddApiCallNode(Point position, WorkflowNode? workflowNode = null)
     {
+        PushUndoSnapshot();
         var node = _diagram.Nodes.Add(new ApiCallNodeModel(position, workflowNode));
         node.OnEditRequested = () => _ = OpenEditDialog(node);
         return node;
@@ -305,7 +326,11 @@
         else if (_draggedNodeType == "set-variable")
         {
             AddSetVariableNode(new Point(x, y));
-        }        
+        }   
+        else if (_draggedNodeType == "note")
+        {
+            AddNoteNode(new Point(x, y));
+        }     
 
         _draggedNodeType = null;
     }
@@ -384,6 +409,7 @@
                 WorkflowNodeType.Delay => AddDelayNode(position, workflowNode),
                 WorkflowNodeType.Loop => AddLoopNode(position, workflowNode),
                 WorkflowNodeType.SetVariable => AddSetVariableNode(position, workflowNode),
+                WorkflowNodeType.Note => AddNoteNode(position, workflowNode),
                 _ => AddStartNode(position, workflowNode)
             };
 
@@ -394,6 +420,7 @@
         {
             if (!nodeMap.TryGetValue(connection.SourceNodeId, out var source)) continue;
             if (!nodeMap.TryGetValue(connection.TargetNodeId, out var target)) continue;
+            if (source is NoteNodeModel || target is NoteNodeModel) continue; // anotações nunca têm porta
 
             var deltaX = target.Position.X + (target.Size?.Width ?? 0) / 2 - source.Position.X - (source.Size?.Width ?? 0) / 2;
             var deltaY = target.Position.Y + (target.Size?.Height ?? 0) / 2 - source.Position.Y - (source.Size?.Height ?? 0) / 2;
@@ -759,6 +786,7 @@
                 DelayNodeModel delayNode => delayNode.WorkflowNode,
                 LoopNodeModel loopNode => loopNode.WorkflowNode,
                 SetVariableNodeModel setVarNode => setVarNode.WorkflowNode,
+                NoteNodeModel noteNode => noteNode.WorkflowNode,
                 StartNodeModel startNode => startNode.WorkflowNode,
                 _ => new WorkflowNode { Type = WorkflowNodeType.Start, Title = node.Title ?? "Nó" }
             };
@@ -809,6 +837,7 @@
         DelayNodeModel delayNode => delayNode.WorkflowNode,
         LoopNodeModel loopNode => loopNode.WorkflowNode,
         SetVariableNodeModel setVarNode => setVarNode.WorkflowNode,
+        NoteNodeModel noteNode => noteNode.WorkflowNode,
         StartNodeModel startNode => startNode.WorkflowNode,
         _ => null
     };
@@ -822,6 +851,7 @@
 
     private ConditionNodeModel AddConditionNode(Point position, WorkflowNode? workflowNode = null)
     {
+        PushUndoSnapshot();
         var node = _diagram.Nodes.Add(new ConditionNodeModel(position, workflowNode));
         node.OnEditRequested = () => _ = OpenConditionEditDialog(node);
         return node;
@@ -846,7 +876,8 @@
     }    
 
     private DelayNodeModel AddDelayNode(Point position, WorkflowNode? workflowNode = null)
-    {
+    { 
+        PushUndoSnapshot();
         var node = _diagram.Nodes.Add(new DelayNodeModel(position, workflowNode));
         node.OnEditRequested = () => _ = OpenDelayEditDialog(node);
         return node;
@@ -871,6 +902,7 @@
 
     private LoopNodeModel AddLoopNode(Point position, WorkflowNode? workflowNode = null)
     {
+        PushUndoSnapshot();
         var node = _diagram.Nodes.Add(new LoopNodeModel(position, workflowNode));
         node.OnEditRequested = () => _ = OpenLoopEditDialog(node);
         return node;
@@ -895,6 +927,7 @@
 
     private SetVariableNodeModel AddSetVariableNode(Point position, WorkflowNode? workflowNode = null)
     {
+        PushUndoSnapshot();
         var node = _diagram.Nodes.Add(new SetVariableNodeModel(position, workflowNode));
         node.OnEditRequested = () => _ = OpenSetVariableEditDialog(node);
         return node;
@@ -1006,4 +1039,227 @@
             }).ToList()
         }
     };    
+
+    private readonly Stack<string> _undoStack = new();
+    private readonly Stack<string> _redoStack = new();
+
+    private void PushUndoSnapshot()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(BuildWorkflowDefinition());
+        _undoStack.Push(json);
+        _redoStack.Clear(); // uma mudança nova invalida o "refazer" antigo
+    }
+
+    private void Undo()
+    {
+        if (_undoStack.Count == 0) return;
+
+        var currentJson = System.Text.Json.JsonSerializer.Serialize(BuildWorkflowDefinition());
+        _redoStack.Push(currentJson);
+
+        var previous = System.Text.Json.JsonSerializer.Deserialize<WorkflowDefinition>(_undoStack.Pop())!;
+        LoadWorkflowIntoCanvas(previous);
+    }
+
+    private void Redo()
+    {
+        if (_redoStack.Count == 0) return;
+
+        var currentJson = System.Text.Json.JsonSerializer.Serialize(BuildWorkflowDefinition());
+        _undoStack.Push(currentJson);
+
+        var next = System.Text.Json.JsonSerializer.Deserialize<WorkflowDefinition>(_redoStack.Pop())!;
+        LoadWorkflowIntoCanvas(next);
+    }    
+
+    private NoteNodeModel AddNoteNode(Point position, WorkflowNode? workflowNode = null)
+    {
+        PushUndoSnapshot();
+        var node = _diagram.Nodes.Add(new NoteNodeModel(position, workflowNode));
+        node.OnEditRequested = () => _ = OpenNoteEditDialog(node);
+        return node;
+    }
+
+    private async Task OpenNoteEditDialog(NoteNodeModel node)
+    {
+        var parameters = new DialogParameters<EditNoteDialog> { { x => x.Node, node } };
+        var dialogRef = await DialogService.ShowAsync<EditNoteDialog>("Editar anotação", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled) return;
+
+        if (result.Data is string text)
+        {
+            node.WorkflowNode.NoteText = text;
+            node.Refresh();
+        }
+    }
+
+    private async Task ImportFromSuite()
+    {
+        var suites = await TestSuiteRepository.GetAllAsync();
+        if (suites.Count == 0)
+        {
+            Snackbar.Add("Nenhuma suíte salva encontrada.", Severity.Warning);
+            return;
+        }
+
+        var parameters = new DialogParameters<ImportSuiteDialog> { { x => x.Suites, suites } };
+        var dialogRef = await DialogService.ShowAsync<ImportSuiteDialog>("Importar de uma suíte", parameters);
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled || result.Data is not Guid suiteId) return;
+
+        var suite = suites.FirstOrDefault(s => s.Id == suiteId);
+        if (suite is null) return;
+
+        var workflow = ConvertSuiteToWorkflow(suite);
+        _currentWorkflowId = null;
+        _workflowName = workflow.Name;
+        _baseUrl = workflow.BaseUrl;
+        LoadWorkflowIntoCanvas(workflow);
+        Snackbar.Add("Suíte convertida — revise os nós e clique em Salvar quando estiver pronto.", Severity.Info);
+    }
+
+    private static WorkflowDefinition ConvertSuiteToWorkflow(TestSuite suite)
+    {
+        var workflow = new WorkflowDefinition
+        {
+            Name = $"{suite.Name} (importado da suíte)",
+            SourceSpecId = suite.SourceSpecId,
+            BaseUrl = suite.BaseUrl
+        };
+
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início", PositionX = 80, PositionY = 150 };
+        workflow.Nodes.Add(start);
+
+        var previous = start;
+        var x = 360;
+
+        foreach (var testCase in suite.TestCases)
+        {
+            var node = new WorkflowNode
+            {
+                Type = WorkflowNodeType.ApiCall,
+                Title = testCase.Name,
+                PositionX = x,
+                PositionY = 150,
+                ApiCallSpecId = suite.SourceSpecId,
+                ApiCallTestCase = CloneTestCaseForWorkflow(testCase)
+            };
+
+            workflow.Nodes.Add(node);
+            workflow.Connections.Add(new WorkflowConnection { SourceNodeId = previous.Id, TargetNodeId = node.Id });
+
+            previous = node;
+            x += 280;
+        }
+
+        return workflow;
+    }
+
+    private static TestCase CloneTestCaseForWorkflow(TestCase source) => new()
+    {
+        Name = source.Name,
+        EndpointOperationId = source.EndpointOperationId,
+        ParameterValues = new Dictionary<string, object?>(source.ParameterValues),
+        RequestBodyJson = source.RequestBodyJson,
+        ExpectedStatusCode = source.ExpectedStatusCode,
+        FollowRedirects = source.FollowRedirects,
+        ExtraHeaders = new Dictionary<string, string>(source.ExtraHeaders),
+        Assertions = source.Assertions.Select(a => new TestAssertion
+        {
+            Type = a.Type, JsonPath = a.JsonPath, HeaderName = a.HeaderName, ExpectedValue = a.ExpectedValue
+        }).ToList(),
+        CapturedVariables = source.CapturedVariables.Select(c => new VariableCapture
+        {
+            VariableName = c.VariableName, JsonPath = c.JsonPath, SourceHeaderName = c.SourceHeaderName
+        }).ToList()
+    };
+
+    private async Task OpenTemplateDialog()
+    {
+        var dialogRef = await DialogService.ShowAsync<WorkflowTemplateDialog>("Novo a partir de modelo");
+        var result = await dialogRef.Result;
+
+        if (result is null || result.Canceled || result.Data is not string key) return;
+
+        var workflow = key switch
+        {
+            "login" => BuildLoginTemplate(),
+            "pagination" => BuildPaginationTemplate(),
+            _ => null
+        };
+        if (workflow is null) return;
+
+        _currentWorkflowId = null;
+        _workflowName = workflow.Name;
+        _baseUrl = workflow.BaseUrl;
+        LoadWorkflowIntoCanvas(workflow);
+        Snackbar.Add("Modelo carregado — configure os endpoints e salve quando estiver pronto.", Severity.Info);
+    }
+
+    private static WorkflowDefinition BuildLoginTemplate()
+    {
+        var workflow = new WorkflowDefinition { Name = "Login + chamada autenticada" };
+
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início", PositionX = 80, PositionY = 140 };
+        var login = new WorkflowNode
+        {
+            Type = WorkflowNodeType.ApiCall,
+            Title = "Login",
+            PositionX = 360,
+            PositionY = 140,
+            ApiCallTestCase = new TestCase
+            {
+                CapturedVariables = [new VariableCapture { VariableName = "authToken", JsonPath = "$.token" }]
+            }
+        };
+        var authenticated = new WorkflowNode
+        {
+            Type = WorkflowNodeType.ApiCall,
+            Title = "Chamada autenticada",
+            PositionX = 680,
+            PositionY = 140,
+            ApiCallTestCase = new TestCase
+            {
+                ExtraHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer {{authToken}}" }
+            }
+        };
+
+        workflow.Nodes.AddRange([start, login, authenticated]);
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = start.Id, TargetNodeId = login.Id });
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = login.Id, TargetNodeId = authenticated.Id });
+
+        return workflow;
+    }
+
+    private static WorkflowDefinition BuildPaginationTemplate()
+    {
+        var workflow = new WorkflowDefinition { Name = "Paginação com loop" };
+
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início", PositionX = 80, PositionY = 200 };
+        var loop = new WorkflowNode { Type = WorkflowNodeType.Loop, Title = "Repetir", LoopMaxIterations = 20, PositionX = 360, PositionY = 200 };
+        var fetchPage = new WorkflowNode { Type = WorkflowNodeType.ApiCall, Title = "Buscar página", PositionX = 680, PositionY = 80 };
+        var hasNext = new WorkflowNode
+        {
+            Type = WorkflowNodeType.Condition,
+            Title = "Tem próxima página?",
+            ConditionJsonPath = "$.hasNextPage",
+            ConditionExpectedValue = "true",
+            PositionX = 680,
+            PositionY = 320
+        };
+        var done = new WorkflowNode { Type = WorkflowNodeType.Delay, Title = "Fim", DelayMilliseconds = 0, PositionX = 1000, PositionY = 200 };
+
+        workflow.Nodes.AddRange([start, loop, fetchPage, hasNext, done]);
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = start.Id, TargetNodeId = loop.Id });
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = fetchPage.Id, Label = "Corpo" });
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = fetchPage.Id, TargetNodeId = hasNext.Id });
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = hasNext.Id, TargetNodeId = loop.Id, Label = "Sim" }); // tem próxima -> continua
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = hasNext.Id, TargetNodeId = done.Id, Label = "Não" }); // acabou -> sai cedo
+        workflow.Connections.Add(new WorkflowConnection { SourceNodeId = loop.Id, TargetNodeId = done.Id, Label = "Fim" }); // estourou o máximo de iterações
+
+        return workflow;
+    }    
 }

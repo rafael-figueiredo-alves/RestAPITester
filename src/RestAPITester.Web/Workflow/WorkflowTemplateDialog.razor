@@ -1,0 +1,24 @@
+<MudDialog>
+    <DialogContent>
+        <MudList T="string" Clickable="true">
+            <MudListItem T="string" OnClick="@(() => Choose("login"))">
+                <MudText Typo="Typo.subtitle2">Login + chamada autenticada</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Início → Login (já sugere captura de token) → Chamada autenticada</MudText>
+            </MudListItem>
+            <MudListItem T="string" OnClick="@(() => Choose("pagination"))" Class="mt-2">
+                <MudText Typo="Typo.subtitle2">Paginação com loop</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Início → Repetir → Buscar página → Condição (tem próxima?) → continua ou sai</MudText>
+            </MudListItem>
+        </MudList>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private void Choose(string key) => MudDialog.Close(DialogResult.Ok(key));
+    private void Cancel() => MudDialog.Cancel();
+}

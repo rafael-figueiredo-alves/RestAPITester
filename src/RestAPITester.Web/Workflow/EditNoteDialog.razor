@@ -1,0 +1,21 @@
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Texto da anotação" @bind-Value="_text" Lines="5" Variant="Variant.Outlined" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">Salvar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public NoteNodeModel Node { get; set; } = null!;
+
+    private string _text = string.Empty;
+
+    protected override void OnInitialized() => _text = Node.WorkflowNode.NoteText ?? string.Empty;
+
+    private void Save() => MudDialog.Close(DialogResult.Ok(_text));
+    private void Cancel() => MudDialog.Cancel();
+}

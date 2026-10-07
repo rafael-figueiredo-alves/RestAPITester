@@ -7,7 +7,8 @@ public enum WorkflowNodeType
     Delay,
     Condition,
     Loop,
-    SetVariable
+    SetVariable,
+    Note
 }
 
 /// <summary>
@@ -43,4 +44,7 @@ public class WorkflowNode
     /// <summary>Usados quando Type == SetVariable.</summary>
     public string? SetVariableName { get; set; }
     public string? SetVariableValue { get; set; }
+
+    /// <summary>Usado quando Type == Note.</summary>
+    public string? NoteText { get; set; }    
 }

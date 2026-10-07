@@ -1,0 +1,12 @@
+<div class="workflow-note">
+    <div class="workflow-note__header">
+        <MudIcon Icon="@Icons.Material.Filled.StickyNote2" Size="MudBlazor.Size.Small" />
+        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="MudBlazor.Size.Small"
+                       OnClick="@(() => Node.OnEditRequested?.Invoke())" />
+    </div>
+    <div class="workflow-note__text">@Node.WorkflowNode.NoteText</div>
+</div>
+
+@code {
+    [Parameter] public NoteNodeModel Node { get; set; } = null!;
+}
