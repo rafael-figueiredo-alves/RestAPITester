@@ -1,5 +1,5 @@
-using System.Net.Http;
 using Microsoft.OpenApi;
+using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Models;
 using System.Text.Json;
 
@@ -11,12 +11,22 @@ namespace RestAPITester.Core.OpenApi;
 /// </summary>
 public class OpenApiParser
 {
+    /// <summary>
+    /// Lê um documento OpenAPI (JSON, suportando 3.0.x e 3.1.x) a partir de um Stream
+    /// </summary>
+    /// <param name="openApiContent">O conteúdo do documento OpenAPI</param>
+    /// <returns></returns>
     public ParseResult Parse(Stream openApiContent)
     {
         using var reader = new StreamReader(openApiContent);
         return Parse(reader.ReadToEnd());
     }
 
+    /// <summary>
+    /// Lê um documento OpenAPI (JSON, suportando 3.0.x e 3.1.x) a partir de uma string
+    /// </summary>
+    /// <param name="openApiContent">O conteúdo do documento OpenAPI</param>
+    /// <returns></returns>
     public ParseResult Parse(string openApiContent)
     {
         var (document, diagnostic) = OpenApiDocument.Parse(openApiContent);
@@ -67,6 +77,13 @@ public class OpenApiParser
         };
     }
 
+    #region Métodos auxiliares privados
+
+    /// <summary>
+    /// Mapeia o HttpMethod do Microsoft.OpenApi para o HttpMethodType usado internamente na aplicação.
+    /// </summary>
+    /// <param name="method">O HttpMethod do Microsoft.OpenApi</param>
+    /// <returns>O HttpMethodType correspondente</returns>
     private static HttpMethodType MapMethod(HttpMethod method)
     {
         if (method == HttpMethod.Get) return HttpMethodType.Get;
@@ -79,6 +96,11 @@ public class OpenApiParser
         return HttpMethodType.Get;
     }
 
+    /// <summary>
+    /// Mapeia os parâmetros do Microsoft.OpenApi para a lista de ParameterInfo usada internamente na aplicação.
+    /// </summary>
+    /// <param name="parameters">Os parâmetros do Microsoft.OpenApi</param>
+    /// <returns>A lista de ParameterInfo</returns>
     private static List<ParameterInfo> MapParameters(IList<IOpenApiParameter>? parameters)
     {
         if (parameters is null) return new();
@@ -102,6 +124,11 @@ public class OpenApiParser
         }).ToList();
     }
 
+    /// <summary>
+    /// Mapeia o RequestBody do Microsoft.OpenApi para o RequestBodyInfo usado internamente na aplicação.
+    /// </summary>
+    /// <param name="requestBody">O RequestBody do Microsoft.OpenApi</param>
+    /// <returns>O RequestBodyInfo correspondente</returns>
     private static RequestBodyInfo? MapRequestBody(IOpenApiRequestBody? requestBody)
     {
         if (requestBody is null) return null;
@@ -122,34 +149,39 @@ public class OpenApiParser
             Example = content.Example?.ToString()
         };
     }
-
+    
+    /// <summary>
+    /// Mapeia as respostas do Microsoft.OpenApi para a lista de ResponseInfo usada internamente na aplicação.
+    /// </summary>
+    /// <param name="responses">As respostas do Microsoft.OpenApi</param>
+    /// <returns>A lista de ResponseInfo</returns>
     private static List<ResponseInfo> MapResponses(OpenApiResponses? responses)
     {
-    if (responses is null) return new();
+        if (responses is null) return new();
 
-    var result = new List<ResponseInfo>();
+        var result = new List<ResponseInfo>();
 
-    foreach (var (statusCode, response) in responses)
-    {
-        OpenApiMediaType? content = null;
-
-        if (response.Content is not null)
+        foreach (var (statusCode, response) in responses)
         {
-            content = response.Content.TryGetValue("application/json", out var jsonContent)
-                ? jsonContent
-                : response.Content.Values.FirstOrDefault();
+            OpenApiMediaType? content = null;
+
+            if (response.Content is not null)
+            {
+                content = response.Content.TryGetValue("application/json", out var jsonContent)
+                    ? jsonContent
+                    : response.Content.Values.FirstOrDefault();
+            }
+
+            result.Add(new ResponseInfo
+            {
+                StatusCode = statusCode,
+                Description = response.Description,
+                ContentType = content is null ? null : "application/json",
+                SchemaJson = content?.Schema is null ? null : SerializeSchema(content.Schema)
+            });
         }
 
-        result.Add(new ResponseInfo
-        {
-            StatusCode = statusCode,
-            Description = response.Description,
-            ContentType = content is null ? null : "application/json",
-            SchemaJson = content?.Schema is null ? null : SerializeSchema(content.Schema)
-        });
-    }
-
-    return result;
+        return result;
     }   
 
     /// <summary>
@@ -162,6 +194,11 @@ public class OpenApiParser
         return JsonSerializer.Serialize(simplified);
     }
 
+    /// <summary>
+    /// Simplifica o IOpenApiSchema para um objeto anônimo que pode ser serializado em JSON.
+    /// </summary>
+    /// <param name="schema">O IOpenApiSchema a ser simplificado</param>
+    /// <returns>O objeto anônimo simplificado</returns>
     private static object SimplifySchema(IOpenApiSchema schema)
     {
         var typeStr = MapSchemaType(schema.Type);
@@ -209,4 +246,5 @@ public class OpenApiParser
         if (type.Value.HasFlag(JsonSchemaType.String)) return "string";
         return "string";
     }
+    #endregion
 }

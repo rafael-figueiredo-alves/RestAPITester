@@ -1,10 +1,14 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 
+// Sistema de proxy simples para testar APIs REST. Ele redireciona todas as requisições para o endpoint /proxy, que por sua vez encaminha a requisição para o destino especificado no parâmetro 'target' da query string.
+
 var builder = WebApplication.CreateBuilder(args);
 
+// Configura o Kestrel para escutar na porta 5218
 builder.WebHost.UseUrls("http://localhost:5218");
 
+// Configura dois clientes HTTP: um que segue redirecionamentos e outro que não segue.
 builder.Services.AddHttpClient("proxy-client-redirect")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = true });
 
@@ -16,8 +20,10 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// Define os métodos HTTP que o proxy aceitará
 var verbs = new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" };
 
+// Rota do proxy: redireciona a requisição para o destino especificado no parâmetro 'target' da query string
 app.MapMethods("/proxy", verbs, async (HttpContext context, IHttpClientFactory httpClientFactory) =>
 {
     var targetUrl = context.Request.Query["target"].ToString();

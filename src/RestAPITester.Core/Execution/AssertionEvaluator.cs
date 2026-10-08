@@ -1,4 +1,3 @@
-using System.Text.Json;
 using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
@@ -8,10 +7,17 @@ namespace RestAPITester.Core.Execution;
 /// </summary>
 public class AssertionEvaluator
 {
+    /// <summary>
+    /// Método principal para avaliar as asserções de um TestCase contra o resultado da execução.
+    /// </summary>
+    /// <param name="testCase">O caso de teste com as asserções a serem avaliadas</param>
+    /// <param name="result">O resultado da execução da requisição</param>
+    /// <returns></returns>
     public List<AssertionResult> Evaluate(TestCase testCase, ExecutionResult result)
     {
         var results = new List<AssertionResult>();
 
+        // Teste de StatusCode esperado, se definido no TestCase
         if (testCase.ExpectedStatusCode.HasValue)
         {
             var passed = result.StatusCode == testCase.ExpectedStatusCode.Value;
@@ -25,6 +31,7 @@ public class AssertionEvaluator
             });
         }
 
+        // Executa cada asserção definida no TestCase
         foreach (var assertion in testCase.Assertions)
         {
             results.Add(EvaluateSingle(assertion, result));
@@ -33,6 +40,14 @@ public class AssertionEvaluator
         return results;
     }
 
+    #region Métodos auxiliares privados de avalisação de asserções
+    /// <summary>
+    /// Avalia uma única asserção contra o resultado da execução.
+    /// Adicionar aqui novos tipos de asserção conforme necessário.
+    /// </summary>
+    /// <param name="assertion"></param>
+    /// <param name="result"></param>
+    /// <returns></returns>
     private static AssertionResult EvaluateSingle(TestAssertion assertion, ExecutionResult result)
     {
         return assertion.Type switch
@@ -60,10 +75,17 @@ public class AssertionEvaluator
         };
     }
 
+    /// <summary>
+    /// Cria um AssertionResult baseado no resultado da avaliação de uma asserção.
+    /// </summary>
+    /// <param name="assertion"></param>
+    /// <param name="passed"></param>
+    /// <returns></returns>
     private static AssertionResult Check(TestAssertion assertion, bool passed) => new()
     {
         Type = assertion.Type,
         Passed = passed,
         Message = passed ? null : "Asserção falhou"
     };
+    #endregion
 }

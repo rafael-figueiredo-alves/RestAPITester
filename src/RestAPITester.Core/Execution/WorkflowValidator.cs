@@ -2,6 +2,9 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
+/// <summary>
+/// Validates a workflow definition for potential issues, such as missing start nodes, unreachable nodes, and misconfigured nodes.
+/// </summary>
 public class WorkflowValidator
 {
     public List<WorkflowValidationIssue> Validate(WorkflowDefinition workflow)

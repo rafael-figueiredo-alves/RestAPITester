@@ -3,6 +3,9 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
+/// <summary>
+/// Executes a workflow defined by a series of nodes, handling API calls, variable management, delays, loops, and conditions.
+/// </summary>
 public class WorkflowRunner
 {
     private const int MaxTotalSteps = 500;

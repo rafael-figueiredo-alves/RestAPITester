@@ -1,4 +1,5 @@
 using System.Net;
+using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Execution;
 using RestAPITester.Core.Models;
 

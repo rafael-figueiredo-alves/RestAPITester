@@ -1,4 +1,4 @@
-using RestAPITester.Core.Models;
+using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.OpenApi;
 using Xunit;
 

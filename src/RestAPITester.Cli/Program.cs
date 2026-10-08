@@ -3,6 +3,8 @@ using RestAPITester.Core.Execution;
 using RestAPITester.Core.Models;
 using RestAPITester.Core.OpenApi;
 
+// aplicativo de linha de comando para executar uma suíte de testes contra uma especificação OpenAPI
+
 var specPath = GetArg(args, "--spec");
 var suitePath = GetArg(args, "--suite");
 var baseUrlOverride = GetArg(args, "--base-url");

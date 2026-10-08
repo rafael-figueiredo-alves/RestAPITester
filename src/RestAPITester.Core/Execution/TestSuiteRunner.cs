@@ -2,6 +2,9 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
+/// <summary>
+/// Executes a test suite against a set of endpoints, capturing results and session variables.
+/// </summary>
 public class TestSuiteRunner
 {
     private readonly TestExecutor _executor;

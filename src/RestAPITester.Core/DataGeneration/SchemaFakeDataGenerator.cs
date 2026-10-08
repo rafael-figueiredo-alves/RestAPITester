@@ -9,6 +9,9 @@ namespace RestAPITester.Core.DataGeneration;
 /// </summary>
 public class SchemaFakeDataGenerator
 {
+    /// <summary>
+    /// Instância do Faker para gerar dados fictícios, configurada para o idioma pt_BR.
+    /// </summary>
     private readonly Faker _faker = new("pt_BR");
 
     /// <summary>
@@ -86,37 +89,37 @@ public class SchemaFakeDataGenerator
     /// no nome da propriedade (heurística: "email" -> email fictício, "nome"/"name" -> nome fictício, etc.)
     /// </summary>
     private object? GenerateScalar(string type, string? format, string? propertyNameHint)
-{
-    var hint = propertyNameHint?.ToLowerInvariant() ?? string.Empty;
-
-    // Heurísticas por format (do OpenAPI schema) — têm prioridade,
-    // pois vêm de uma declaração explícita na spec, mais confiável que o nome.
-    if (format == "uuid") return Guid.NewGuid().ToString();
-    if (format == "date-time") return _faker.Date.Recent().ToString("O");
-    if (format == "date") return _faker.Date.Past().ToString("yyyy-MM-dd");
-    if (format == "email") return _faker.Internet.Email();
-    if (format == "int32" || format == "int64") return _faker.Random.Int(1, 10000);
-
-    // Heurísticas por nome de propriedade (fallback quando o format não decide)
-    if (hint.Contains("email")) return _faker.Internet.Email();
-    if (hint.Contains("senha") || hint.Contains("password")) return _faker.Internet.Password();
-    if (hint.Contains("telefone") || hint.Contains("phone")) return _faker.Phone.PhoneNumber();
-    if (hint.Contains("nome") || hint == "name" || hint.EndsWith("name")) return _faker.Name.FullName();
-    if (hint.Contains("cpf")) return _faker.Random.ReplaceNumbers("###.###.###-##");
-    if (hint.Contains("cnpj")) return _faker.Random.ReplaceNumbers("##.###.###/####-##");
-    if (hint.Contains("cidade") || hint.Contains("city")) return _faker.Address.City();
-    if (hint.Contains("endereco") || hint.Contains("address")) return _faker.Address.StreetAddress();
-    if (hint.Contains("url") || hint.Contains("site")) return _faker.Internet.Url();
-    if (hint == "id" || hint.EndsWith("id")) return _faker.Random.Int(1, 10000);
-
-    // Fallback por tipo genérico do schema
-    return type switch
     {
-        "integer" => _faker.Random.Int(1, 10000),
-        "number" => _faker.Random.Double(0, 10000),
-        "boolean" => _faker.Random.Bool(),
-        "string" => _faker.Lorem.Word(),
-        _ => null
-    };
-}
+        var hint = propertyNameHint?.ToLowerInvariant() ?? string.Empty;
+
+        // Heurísticas por format (do OpenAPI schema) — têm prioridade,
+        // pois vêm de uma declaração explícita na spec, mais confiável que o nome.
+        if (format == "uuid") return Guid.NewGuid().ToString();
+        if (format == "date-time") return _faker.Date.Recent().ToString("O");
+        if (format == "date") return _faker.Date.Past().ToString("yyyy-MM-dd");
+        if (format == "email") return _faker.Internet.Email();
+        if (format == "int32" || format == "int64") return _faker.Random.Int(1, 10000);
+
+        // Heurísticas por nome de propriedade (fallback quando o format não decide)
+        if (hint.Contains("email")) return _faker.Internet.Email();
+        if (hint.Contains("senha") || hint.Contains("password")) return _faker.Internet.Password();
+        if (hint.Contains("telefone") || hint.Contains("phone")) return _faker.Phone.PhoneNumber();
+        if (hint.Contains("nome") || hint == "name" || hint.EndsWith("name")) return _faker.Name.FullName();
+        if (hint.Contains("cpf")) return _faker.Random.ReplaceNumbers("###.###.###-##");
+        if (hint.Contains("cnpj")) return _faker.Random.ReplaceNumbers("##.###.###/####-##");
+        if (hint.Contains("cidade") || hint.Contains("city")) return _faker.Address.City();
+        if (hint.Contains("endereco") || hint.Contains("address")) return _faker.Address.StreetAddress();
+        if (hint.Contains("url") || hint.Contains("site")) return _faker.Internet.Url();
+        if (hint == "id" || hint.EndsWith("id")) return _faker.Random.Int(1, 10000);
+
+        // Fallback por tipo genérico do schema
+        return type switch
+        {
+            "integer" => _faker.Random.Int(1, 10000),
+            "number" => _faker.Random.Double(0, 10000),
+            "boolean" => _faker.Random.Bool(),
+            "string" => _faker.Lorem.Word(),
+            _ => null
+        };
+    }
 }

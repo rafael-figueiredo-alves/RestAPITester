@@ -2,6 +2,9 @@ using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
+/// <summary>
+/// Extracts captured variables from the execution result based on the test case configuration.
+/// </summary>
 public class VariableCaptureExtractor
 {
     public Dictionary<string, string> Extract(TestCase testCase, ExecutionResult result)

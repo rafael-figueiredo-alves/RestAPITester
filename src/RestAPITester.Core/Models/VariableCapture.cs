@@ -6,6 +6,9 @@ namespace RestAPITester.Core.Models;
 /// </summary>
 public class VariableCapture
 {
+    /// <summary>
+    /// Nome da variável que será criada e armazenada na sessão/suíte.
+    /// </summary>
     public string VariableName { get; set; } = string.Empty;
 
     /// <summary>Usado quando a captura vem do corpo da resposta (JSON). Ignorado se SourceHeaderName estiver definido.</summary>

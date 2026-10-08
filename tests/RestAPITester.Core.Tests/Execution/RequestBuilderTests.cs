@@ -1,3 +1,4 @@
+using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Execution;
 using RestAPITester.Core.Models;
 using Xunit;

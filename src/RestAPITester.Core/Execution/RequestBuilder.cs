@@ -1,16 +1,24 @@
 using System.Text;
+using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Models;
 
 namespace RestAPITester.Core.Execution;
 
+/// <summary>
+/// Construtor de requisições HTTP a partir de informações de endpoint e caso de teste.
+/// </summary>
 public class RequestBuilder
 {
-    public HttpRequestMessage Build(
-        EndpointInfo endpoint,
-        TestCase testCase,
-        string baseUrl,
-        IReadOnlyDictionary<string, string> sessionVariables,
-        string? proxyBaseUrl = null)
+    /// <summary>
+    /// Método principal para construir uma requisição HTTP a partir de um endpoint e caso de teste.
+    /// </summary>
+    /// <param name="endpoint">O endpoint para o qual construir a requisição</param>
+    /// <param name="testCase">O caso de teste com as informações de execução</param>
+    /// <param name="baseUrl">A URL base para a requisição</param>
+    /// <param name="sessionVariables">As variáveis de sessão disponíveis</param>
+    /// <param name="proxyBaseUrl">A URL base do proxy, se aplicável</param>
+    /// <returns></returns>
+    public HttpRequestMessage Build(EndpointInfo endpoint, TestCase testCase,string baseUrl,IReadOnlyDictionary<string, string> sessionVariables,string? proxyBaseUrl = null)
     {
         var path = ResolvePathParameters(endpoint, testCase, sessionVariables);
         var url = BuildUrlWithQuery(baseUrl.TrimEnd('/') + path, endpoint, testCase, sessionVariables);
@@ -39,8 +47,42 @@ public class RequestBuilder
         return request;
     }
 
-    private static string ResolvePathParameters(
-        EndpointInfo endpoint, TestCase testCase, IReadOnlyDictionary<string, string> sessionVariables)
+    /// <summary>
+    /// Constrói um comando cURL a partir de uma requisição HTTP, incluindo método, URL, cabeçalhos e corpo da requisição.
+    /// </summary>
+    /// <param name="request">A requisição HTTP</param>
+    /// <param name="requestBodyJson">O corpo da requisição em formato JSON</param>
+    /// <returns>O comando cURL</returns>
+    public static string BuildCurlCommand(HttpRequestMessage request, string? requestBodyJson)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"curl -X {request.Method.Method} \"{request.RequestUri}\"");
+
+        foreach (var header in request.Headers)
+            foreach (var value in header.Value)
+                sb.Append($" \\\n  -H \"{header.Key}: {value}\"");
+
+        if (request.Content is not null)
+        {
+            if (request.Content.Headers.ContentType is not null)
+                sb.Append($" \\\n  -H \"Content-Type: {request.Content.Headers.ContentType}\"");
+
+            if (!string.IsNullOrEmpty(requestBodyJson))
+                sb.Append($" \\\n  -d '{requestBodyJson.Replace("'", "'\\''")}'");
+        }
+
+        return sb.ToString();
+    }
+
+    #region Métodos auxiliares privados
+    /// <summary>
+    /// Resolve os parâmetros de caminho na URL do endpoint, substituindo-os pelos valores fornecidos no caso de teste ou nas variáveis de sessão.
+    /// </summary>
+    /// <param name="endpoint"></param>
+    /// <param name="testCase"></param>
+    /// <param name="sessionVariables"></param>
+    /// <returns></returns>
+    private static string ResolvePathParameters(EndpointInfo endpoint, TestCase testCase, IReadOnlyDictionary<string, string> sessionVariables)
     {
         var path = endpoint.Path;
 
@@ -53,9 +95,15 @@ public class RequestBuilder
         return path;
     }
 
-    private static string BuildUrlWithQuery(
-        string baseUrlWithPath, EndpointInfo endpoint, TestCase testCase,
-        IReadOnlyDictionary<string, string> sessionVariables)
+    /// <summary>
+    /// Constrói a URL completa com os parâmetros de consulta (query parameters) adicionados, se houver.
+    /// </summary>
+    /// <param name="baseUrlWithPath">a URL base com o caminho do endpoint</param>
+    /// <param name="endpoint">informações sobre o endpoint</param>
+    /// <param name="testCase">o caso de teste</param>
+    /// <param name="sessionVariables">as variáveis de sessão</param>
+    /// <returns></returns>
+    private static string BuildUrlWithQuery(string baseUrlWithPath, EndpointInfo endpoint, TestCase testCase,IReadOnlyDictionary<string, string> sessionVariables)
     {
         var queryParams = endpoint.Parameters
             .Where(p => p.Location == ParameterLocation.Query)
@@ -69,9 +117,14 @@ public class RequestBuilder
             : $"{baseUrlWithPath}?{string.Join("&", queryParams)}";
     }
 
-    private static void ApplyHeaders(
-        HttpRequestMessage request, EndpointInfo endpoint, TestCase testCase,
-        IReadOnlyDictionary<string, string> sessionVariables)
+    /// <summary>
+    /// Aplica os cabeçalhos HTTP à requisição, incluindo parâmetros de cabeçalho do endpoint, cabeçalhos extras do caso de teste e o token de autenticação, se disponível.
+    /// </summary>
+    /// <param name="request">a requisição HTTP</param>
+    /// <param name="endpoint">informações sobre o endpoint</param>
+    /// <param name="testCase">o caso de teste</param>
+    /// <param name="sessionVariables">as variáveis de sessão</param>
+    private static void ApplyHeaders(HttpRequestMessage request, EndpointInfo endpoint, TestCase testCase,IReadOnlyDictionary<string, string> sessionVariables)
     {
         foreach (var param in endpoint.Parameters.Where(p => p.Location == ParameterLocation.Header))
         {
@@ -98,8 +151,14 @@ public class RequestBuilder
         }
     }
 
-    private static string? GetParameterValue(
-        string name, TestCase testCase, IReadOnlyDictionary<string, string> sessionVariables)
+    /// <summary>
+    /// Obtém o valor de um parâmetro, primeiro verificando os valores fornecidos no caso de teste e, se não encontrado, retornando null. Se o valor for encontrado, ele é resolvido para substituir quaisquer variáveis de sessão presentes.
+    /// </summary>
+    /// <param name="name">o nome do parâmetro</param>
+    /// <param name="testCase">o caso de teste</param>
+    /// <param name="sessionVariables">as variáveis de sessão</param>
+    /// <returns></returns>
+    private static string? GetParameterValue(string name, TestCase testCase, IReadOnlyDictionary<string, string> sessionVariables)
     {
         if (testCase.ParameterValues.TryGetValue(name, out var value) && value is not null)
         {
@@ -110,6 +169,12 @@ public class RequestBuilder
         return null;
     }
 
+    /// <summary>
+    /// Resolve variáveis de sessão no texto fornecido, substituindo ocorrências de {{variableName}} pelos valores correspondentes nas variáveis de sessão.
+    /// </summary>
+    /// <param name="text">o texto a ser resolvido</param>
+    /// <param name="sessionVariables">as variáveis de sessão</param>
+    /// <returns></returns>
     private static string ResolveVariables(string text, IReadOnlyDictionary<string, string> sessionVariables)
     {
         foreach (var (key, value) in sessionVariables)
@@ -118,6 +183,11 @@ public class RequestBuilder
         return text;
     }
 
+    /// <summary>
+    /// Método auxiliar para mapear o tipo de método HTTP definido no enum HttpMethodType para a classe HttpMethod do .NET.
+    /// </summary>
+    /// <param name="method">o tipo de método HTTP</param>
+    /// <returns></returns>
     private static HttpMethod MapMethod(HttpMethodType method) => method switch
     {
         HttpMethodType.Get => HttpMethod.Get,
@@ -130,27 +200,12 @@ public class RequestBuilder
         _ => HttpMethod.Get
     };
 
-    public static string BuildCurlCommand(HttpRequestMessage request, string? requestBodyJson)
-    {
-        var sb = new StringBuilder();
-        sb.Append($"curl -X {request.Method.Method} \"{request.RequestUri}\"");
-
-        foreach (var header in request.Headers)
-            foreach (var value in header.Value)
-                sb.Append($" \\\n  -H \"{header.Key}: {value}\"");
-
-        if (request.Content is not null)
-        {
-            if (request.Content.Headers.ContentType is not null)
-                sb.Append($" \\\n  -H \"Content-Type: {request.Content.Headers.ContentType}\"");
-
-            if (!string.IsNullOrEmpty(requestBodyJson))
-                sb.Append($" \\\n  -d '{requestBodyJson.Replace("'", "'\\''")}'");
-        }
-
-        return sb.ToString();
-    }    
-
+    /// <summary>
+    /// Constrói o conteúdo do corpo da requisição HTTP com base no tipo de conteúdo e no corpo fornecido. Suporta "application/x-www-form-urlencoded", "multipart/form-data" e outros tipos de conteúdo como texto simples.
+    /// </summary>
+    /// <param name="contentType">O tipo de conteúdo da requisição</param>
+    /// <param name="body">O corpo da requisição</param>
+    /// <returns></returns>
     private static HttpContent BuildBodyContent(string contentType, string body)
     {
         if (contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
@@ -170,6 +225,11 @@ public class RequestBuilder
         return new StringContent(body, Encoding.UTF8, contentType);
     }
 
+    /// <summary>
+    /// Analisa linhas de texto no formato "chave=valor" e retorna uma coleção de tuplas (Key, Value). Linhas vazias são ignoradas. Espaços em branco ao redor das chaves e valores são removidos.
+    /// </summary>
+    /// <param name="text">O texto a ser analisado</param>
+    /// <returns></returns>
     private static IEnumerable<(string Key, string Value)> ParseKeyValueLines(string text)
     {
         foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -178,5 +238,6 @@ public class RequestBuilder
             if (parts.Length == 2)
                 yield return (parts[0].Trim(), parts[1].Trim());
         }
-    }    
+    }
+    #endregion
 }
