@@ -1,4 +1,5 @@
 using RestAPITester.Core.Models;
+using RestAPITester.Core.EnumsAndConstants;
 
 namespace RestAPITester.Core.Execution;
 
@@ -84,7 +85,7 @@ public class WorkflowValidator
                 }
             }
 
-            foreach (var node in workflow.Nodes.Where(n => !reachable.Contains(n.Id)))
+            foreach (var node in workflow.Nodes.Where(n => n.Type != WorkflowNodeType.Note && !reachable.Contains(n.Id)))
                 issues.Add(Warning($"\"{node.Title}\": não é alcançável a partir do Início.", node.Id));
         }
 

@@ -1,11 +1,9 @@
 using System.Diagnostics;
 using RestAPITester.Core.Models;
+using RestAPITester.Core.EnumsAndConstants;
 
 namespace RestAPITester.Core.Execution;
 
-/// <summary>
-/// Executes a workflow defined by a series of nodes, handling API calls, variable management, delays, loops, and conditions.
-/// </summary>
 public class WorkflowRunner
 {
     private const int MaxTotalSteps = 500;
@@ -23,7 +21,9 @@ public class WorkflowRunner
         string? proxyBaseUrl = null,
         CancellationToken cancellationToken = default,
         Func<Guid, Task>? onNodeStarting = null,
-        Func<IReadOnlyDictionary<string, string>, Task>? onVariablesChanged = null)
+        Func<IReadOnlyDictionary<string, string>, Task>? onVariablesChanged = null,
+        Func<WorkflowNodeExecutionResult, Task>? onNodeCompleted = null,
+        IReadOnlyDictionary<string, string>? initialVariables = null)
     {
         var result = new WorkflowExecutionResult
         {
@@ -31,13 +31,22 @@ public class WorkflowRunner
             StartedAt = DateTime.UtcNow
         };
 
-        var sessionVariables = new Dictionary<string, string>();
+        async Task AddResultAsync(WorkflowNodeExecutionResult nodeResult)
+        {
+            result.NodeResults.Add(nodeResult);
+            if (onNodeCompleted is not null)
+                await onNodeCompleted(nodeResult);
+        }
+
+        var sessionVariables = initialVariables is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(initialVariables);
         var loopIterationCounts = new Dictionary<Guid, int>();
         var currentNode = workflow.Nodes.FirstOrDefault(n => n.Type == WorkflowNodeType.Start);
 
         if (currentNode is null)
         {
-            result.NodeResults.Add(new WorkflowNodeExecutionResult
+            await AddResultAsync(new WorkflowNodeExecutionResult
             {
                 Success = false,
                 ErrorMessage = "O fluxo não tem um nó de Início."
@@ -53,7 +62,7 @@ public class WorkflowRunner
             totalSteps++;
             if (totalSteps > MaxTotalSteps)
             {
-                result.NodeResults.Add(new WorkflowNodeExecutionResult
+                await AddResultAsync(new WorkflowNodeExecutionResult
                 {
                     NodeId = currentNode.Id,
                     NodeTitle = currentNode.Title,
@@ -71,7 +80,7 @@ public class WorkflowRunner
 
             var nodeResult = await ExecuteNodeAsync(
                 currentNode, workflow, endpoints, sessionVariables, lastApiResult, loopIterationCounts, proxyBaseUrl, cancellationToken);
-            result.NodeResults.Add(nodeResult);
+            await AddResultAsync(nodeResult);
 
             if (onVariablesChanged is not null)
                 await onVariablesChanged(sessionVariables);
@@ -178,7 +187,7 @@ public class WorkflowRunner
                 }
 
                 var endpoint = endpoints.FirstOrDefault(e => e.Key == node.ApiCallTestCase.EndpointOperationId)
-                              ?? endpoints.FirstOrDefault(e => e.OperationId == node.ApiCallTestCase.EndpointOperationId);
+                            ?? endpoints.FirstOrDefault(e => e.OperationId == node.ApiCallTestCase.EndpointOperationId);
                 if (endpoint is null)
                 {
                     stopwatch.Stop();

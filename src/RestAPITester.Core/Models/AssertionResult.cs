@@ -1,3 +1,5 @@
+using RestAPITester.Core.EnumsAndConstants;
+
 namespace RestAPITester.Core.Models;
 
 /// <summary>

@@ -164,4 +164,47 @@ public class WorkflowRunnerTests
         Assert.Equal(1, result.NodeResults.Count(r => r.NodeId == apiCall.Id)); // só rodou 1 vez, não 5
         Assert.Equal(1, result.NodeResults.Count(r => r.NodeId == after.Id));
     }    
+
+    [Fact]
+    public async Task RunAsync_UsaVariaveisIniciaisENotificaCadaNoConcluido()
+    {
+        var start = new WorkflowNode { Type = WorkflowNodeType.Start, Title = "Início" };
+        var setVar = new WorkflowNode
+        {
+            Type = WorkflowNodeType.SetVariable,
+            Title = "Define",
+            SetVariableName = "copia",
+            SetVariableValue = "{{senha}}-x"
+        };
+
+        var workflow = new WorkflowDefinition
+        {
+            Nodes = [start, setVar],
+            Connections = [new WorkflowConnection { SourceNodeId = start.Id, TargetNodeId = setVar.Id }]
+        };
+
+        var completed = new List<string>();
+        Dictionary<string, string>? lastVariables = null;
+
+        var runner = new WorkflowRunner(new TestExecutor(new HttpClient(new FakeHttpMessageHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)))));
+
+        await runner.RunAsync(
+            workflow,
+            Array.Empty<EndpointInfo>(),
+            onVariablesChanged: vars =>
+            {
+                lastVariables = new Dictionary<string, string>(vars);
+                return Task.CompletedTask;
+            },
+            onNodeCompleted: node =>
+            {
+                completed.Add(node.NodeTitle);
+                return Task.CompletedTask;
+            },
+            initialVariables: new Dictionary<string, string> { ["senha"] = "abc" });
+
+        Assert.Equal(new[] { "Início", "Define" }, completed);
+        Assert.Equal("abc-x", lastVariables!["copia"]);
+    }    
 }

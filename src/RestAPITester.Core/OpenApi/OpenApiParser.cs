@@ -2,6 +2,7 @@ using Microsoft.OpenApi;
 using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Models;
 using System.Text.Json;
+using RestAPITester.Core.EnumsAndConstants;
 
 namespace RestAPITester.Core.OpenApi;
 
@@ -110,11 +111,11 @@ public class OpenApiParser
             Name = p.Name ?? string.Empty,
             Location = p.In switch
             {
-                Microsoft.OpenApi.ParameterLocation.Query => Models.ParameterLocation.Query,
-                Microsoft.OpenApi.ParameterLocation.Path => Models.ParameterLocation.Path,
-                Microsoft.OpenApi.ParameterLocation.Header => Models.ParameterLocation.Header,
-                Microsoft.OpenApi.ParameterLocation.Cookie => Models.ParameterLocation.Cookie,
-                _ => Models.ParameterLocation.Query
+                Microsoft.OpenApi.ParameterLocation.Query => EnumsAndConstants.ParameterLocation.Query,
+                Microsoft.OpenApi.ParameterLocation.Path => EnumsAndConstants.ParameterLocation.Path,
+                Microsoft.OpenApi.ParameterLocation.Header => EnumsAndConstants.ParameterLocation.Header,
+                Microsoft.OpenApi.ParameterLocation.Cookie => EnumsAndConstants.ParameterLocation.Cookie,
+                _ => EnumsAndConstants.ParameterLocation.Query
             },
             Required = p.Required,
             SchemaType = MapSchemaType(p.Schema?.Type),
