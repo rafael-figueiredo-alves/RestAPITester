@@ -2,22 +2,29 @@
 @inject ISpecRepository SpecRepository
 @inject ITestSuiteRepository TestSuiteRepository
 @inject IEnvironmentRepository EnvironmentRepository
+@inject IWorkflowRepository WorkflowRepository
 @inject JsonFileExportService FileExportService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
-<MudContainer MaxWidth="MaxWidth.Medium">
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
     <MudText Typo="Typo.h4" Class="mb-4">Dados Locais</MudText>
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <MudText Typo="Typo.h6" Class="mb-2">Backup completo</MudText>
         <MudText Typo="Typo.body2" Class="mb-3">
-            Exporta todas as especificações, suítes de teste e ambientes salvos num único arquivo.
+            Exporta especificações, suítes de teste, ambientes e fluxos num único arquivo.
+            O histórico de execuções não entra no backup.
         </MudText>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ExportBackup">
             Exportar backup
         </MudButton>
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+            O arquivo é JSON puro. Se algum teste ou fluxo tiver senha ou token digitado direto em
+            header ou corpo, ele vai junto. Prefira variáveis (<code>{{senha}}</code>) e não
+            compartilhe nem versione esse arquivo.
+        </MudAlert>
     </MudPaper>
 
     <MudPaper Class="pa-4 mb-4" Elevation="2">
@@ -36,7 +43,7 @@
     <MudPaper Class="pa-4" Elevation="2">
         <MudText Typo="Typo.h6" Class="mb-2">Resetar dados locais</MudText>
         <MudText Typo="Typo.body2" Class="mb-3">
-            Apaga TUDO que está salvo neste navegador (specs, suítes, ambientes e histórico).
+            Apaga TUDO que está salvo neste navegador (specs, suítes, ambientes, fluxos e histórico).
             Faça um backup antes, se quiser manter algo.
         </MudText>
         <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="ResetLocalData">
@@ -52,12 +59,17 @@
         {
             Specs = await SpecRepository.GetAllAsync(),
             TestSuites = await TestSuiteRepository.GetAllAsync(),
-            Environments = await EnvironmentRepository.GetAllAsync()
+            Environments = await EnvironmentRepository.GetAllAsync(),
+            Workflows = await WorkflowRepository.GetAllAsync()
         };
 
         var json = System.Text.Json.JsonSerializer.Serialize(backup, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         await FileExportService.DownloadJsonAsync($"restapitester-backup-{DateTime.Now:yyyyMMdd-HHmmss}.json", json);
-        Snackbar.Add("Backup exportado.", Severity.Success);
+
+        Snackbar.Add(
+            $"Backup exportado: {backup.Specs.Count} spec(s), {backup.TestSuites.Count} suíte(s), " +
+            $"{backup.Environments.Count} ambiente(s), {backup.Workflows.Count} fluxo(s).",
+            Severity.Success);
     }
 
     private async Task OnBackupFileSelected(InputFileChangeEventArgs e)
@@ -68,38 +80,42 @@
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync();
 
-            var backup = System.Text.Json.JsonSerializer.Deserialize<BackupPayload>(content);
+            BackupPayload? backup;
+            try
+            {
+                backup = System.Text.Json.JsonSerializer.Deserialize<BackupPayload>(content);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                Snackbar.Add("Arquivo de backup inválido.", Severity.Error);
+                return;
+            }
+
             if (backup is null)
             {
                 Snackbar.Add("Arquivo de backup inválido.", Severity.Error);
                 return;
             }
 
-            var specIdMap = new Dictionary<Guid, Guid>();
+            // Ids novos + referências de spec reapontadas (suítes, fluxos e nós de API dos fluxos).
+            backup.AssignNewIds();
 
             foreach (var spec in backup.Specs)
-            {
-                var oldId = spec.Id;
-                spec.Id = Guid.NewGuid();
-                specIdMap[oldId] = spec.Id;
                 await SpecRepository.SaveAsync(spec);
-            }
 
             foreach (var suite in backup.TestSuites)
-            {
-                suite.Id = Guid.NewGuid();
-                if (specIdMap.TryGetValue(suite.SourceSpecId, out var newSpecId))
-                    suite.SourceSpecId = newSpecId;
                 await TestSuiteRepository.SaveAsync(suite);
-            }
 
             foreach (var env in backup.Environments)
-            {
-                env.Id = Guid.NewGuid();
                 await EnvironmentRepository.SaveAsync(env);
-            }
 
-            Snackbar.Add("Backup restaurado com sucesso.", Severity.Success);
+            foreach (var workflow in backup.Workflows)
+                await WorkflowRepository.SaveAsync(workflow);
+
+            Snackbar.Add(
+                $"Backup restaurado: {backup.Specs.Count} spec(s), {backup.TestSuites.Count} suíte(s), " +
+                $"{backup.Environments.Count} ambiente(s), {backup.Workflows.Count} fluxo(s).",
+                Severity.Success);
         }
         catch (Exception ex)
         {
@@ -111,7 +127,7 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Resetar dados locais",
-            "Isso vai apagar TODAS as specs, suítes, ambientes e histórico salvos neste navegador. Essa ação não pode ser desfeita. Deseja continuar?",
+            "Isso vai apagar TODAS as specs, suítes, ambientes, fluxos e histórico salvos neste navegador. Essa ação não pode ser desfeita. Deseja continuar?",
             yesText: "Apagar tudo", noText: "Cancelar");
 
         if (confirmed != true) return;

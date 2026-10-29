@@ -2,7 +2,6 @@ using Microsoft.OpenApi;
 using RestAPITester.Core.EnumsAndConstants;
 using RestAPITester.Core.Models;
 using System.Text.Json;
-using RestAPITester.Core.EnumsAndConstants;
 
 namespace RestAPITester.Core.OpenApi;
 
